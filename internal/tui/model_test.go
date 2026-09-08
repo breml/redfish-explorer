@@ -443,7 +443,7 @@ func TestCursorStopsAtTheEnds(t *testing.T) {
 		m = press(t, m, "j")
 	}
 
-	if !strings.Contains(lineWith(t, m, "SmartStorageUri"), "▸") {
+	if !strings.Contains(lineWith(t, m, "Thermal"), "▸") {
 		t.Errorf("cursor should stop on the last link, screen:\n%s", screen(m))
 	}
 }

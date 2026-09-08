@@ -144,8 +144,9 @@ func TestExtractLinksGroupsAndOrder(t *testing.T) {
 		t.Errorf("groups = %v, want %v", titles(groups), want)
 	}
 
-	// Document order is preserved: Redfish services order meaningfully.
-	wantResource := []string{"Systems", "Chassis", "Managers"}
+	// The links of a group are sorted by label, whatever order the service
+	// wrote them in.
+	wantResource := []string{"Chassis", "Managers", "Systems"}
 	if got := labels(group(t, groups, "Resource")); !equal(got, wantResource) {
 		t.Errorf("Resource links = %v, want %v", got, wantResource)
 	}
@@ -186,7 +187,7 @@ func TestExtractLinksLabelsMembersByID(t *testing.T) {
 
 	groups, _ := extract(t, body)
 
-	want := []string{"1", "System.Embedded.1", "BMC One"}
+	want := []string{"1", "BMC One", "System.Embedded.1"}
 	if got := labels(group(t, groups, "Members")); !equal(got, want) {
 		t.Errorf("Members labels = %v, want %v", got, want)
 	}
@@ -238,7 +239,7 @@ func TestExtractLinksActions(t *testing.T) {
 
 	actions := group(t, groups, "Actions")
 
-	want := []string{"#ComputerSystem.Reset", "#ComputerSystem.Decommission"}
+	want := []string{"#ComputerSystem.Decommission", "#ComputerSystem.Reset"}
 	if got := labels(actions); !equal(got, want) {
 		t.Errorf("Actions labels = %v, want %v", got, want)
 	}
@@ -285,7 +286,7 @@ func TestExtractLinksAnnotations(t *testing.T) {
 
 	groups, _ := extract(t, body)
 
-	want := []string{"SettingsObject", "CapabilitiesObject"}
+	want := []string{"CapabilitiesObject", "SettingsObject"}
 	if got := labels(group(t, groups, "Annotations")); !equal(got, want) {
 		t.Errorf("Annotations labels = %v, want %v", got, want)
 	}
@@ -394,7 +395,7 @@ func TestExtractLinksFromHeaders(t *testing.T) {
 
 	headers := group(t, groups, "Headers")
 
-	want := []string{"Location", "Content-Location"}
+	want := []string{"Content-Location", "Location"}
 	if got := labels(headers); !equal(got, want) {
 		t.Fatalf("Headers labels = %v, want %v", got, want)
 	}
@@ -502,9 +503,9 @@ func TestExtractLinksHPE(t *testing.T) {
 	want := []string{
 		"#HpeComputerSystemExt.PowerButton",
 		"#HpeComputerSystemExt.SecureSystemErase",
+		"Memory",
 		"PCIDevices",
 		"SmartStorage",
-		"Memory",
 		"Thermal",
 	}
 	if got := labels(oem); !equal(got, want) {
@@ -525,7 +526,7 @@ func TestExtractLinksDell(t *testing.T) {
 
 	oem := group(t, groups, "Oem · Dell")
 
-	want := []string{"DellSystem", "DellNumericSensorCollection"}
+	want := []string{"DellNumericSensorCollection", "DellSystem"}
 	if got := labels(oem); !equal(got, want) {
 		t.Errorf("Oem · Dell labels = %v, want %v", got, want)
 	}
@@ -544,7 +545,7 @@ func TestExtractLinksLenovo(t *testing.T) {
 	oem := group(t, groups, "Oem · Lenovo")
 
 	// Uri and href are plain strings, not navigation links, but still reachable.
-	want := []string{"Uri", "Processors", "href"}
+	want := []string{"href", "Processors", "Uri"}
 	if got := labels(oem); !equal(got, want) {
 		t.Errorf("Oem · Lenovo labels = %v, want %v", got, want)
 	}

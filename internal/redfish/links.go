@@ -88,7 +88,7 @@ type Group struct {
 	OEM bool
 	// Vendor is the vendor key of an OEM group.
 	Vendor string
-	// Links are the group's links, in document order.
+	// Links are the group's links, sorted by label.
 	Links []Link
 }
 
@@ -423,7 +423,9 @@ func (e *extractor) dropShadowedURIs() {
 }
 
 // groups collects the links into their groups, in display order, dropping
-// duplicates within a group and empty groups altogether.
+// duplicates within a group and empty groups altogether. The links of a group
+// are sorted by label, so that a group reads as an alphabetical list rather
+// than in the order the service happened to write the document.
 func (e *extractor) groups() []Group {
 	byTitle := map[string]*Group{}
 	seen := map[string]bool{}
@@ -458,11 +460,26 @@ func (e *extractor) groups() []Group {
 	})
 
 	groups := make([]Group, 0, len(titles))
+
 	for _, title := range titles {
-		groups = append(groups, *byTitle[title])
+		group := byTitle[title]
+		slices.SortStableFunc(group.Links, compareLinks)
+		groups = append(groups, *group)
 	}
 
 	return groups
+}
+
+// compareLinks orders two links of a group alphabetically by label, ignoring
+// case so that the order matches how the labels read. Labels need not be
+// unique, so the target breaks the tie and keeps the order stable.
+func compareLinks(a Link, b Link) int {
+	label := strings.Compare(strings.ToLower(a.Label), strings.ToLower(b.Label))
+	if label != 0 {
+		return label
+	}
+
+	return strings.Compare(a.Target, b.Target)
 }
 
 // groupFor decides which group a link found at path belongs to.
