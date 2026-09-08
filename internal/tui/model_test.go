@@ -1,6 +1,8 @@
 package tui_test
 
 import (
+	"errors"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -138,6 +140,14 @@ func screen(m tui.Model) string {
 // that care about how something is drawn rather than what it says.
 func styled(m tui.Model) string {
 	return m.View().Content
+}
+
+// footerLine returns the last rendered line, which carries the notice and the
+// key hints.
+func footerLine(m tui.Model) string {
+	lines := strings.Split(screen(m), "\n")
+
+	return lines[len(lines)-1]
 }
 
 // lineWith returns the first rendered line containing want.
@@ -291,6 +301,70 @@ func TestHeaderShowsTheCurlCommandOnOneLine(t *testing.T) {
 
 	if strings.Contains(curl, "User-Agent") {
 		t.Errorf("curl line = %q, want no User-Agent header", curl)
+	}
+}
+
+// Copying is the point of the single-line curl command: what goes out has to be
+// exactly what the header shows.
+func TestCopyPutsTheCurlCommandOnTheClipboard(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, "/redfish/v1/Systems/1")
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	if cmd == nil {
+		t.Fatal("y produced no command, want the clipboard to be set")
+	}
+
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("y produced %T, want a batch of both copy mechanisms", cmd())
+	}
+
+	if len(batch) != 2 {
+		t.Errorf("batch has %d commands, want OSC 52 and the local clipboard", len(batch))
+	}
+
+	// SetClipboard carries the text in an unexported message whose underlying
+	// type is a string, so the value is readable even if the type is not.
+	want := strings.TrimSpace(strings.Split(screen(m), "\n")[1])
+
+	var found bool
+
+	for _, c := range batch {
+		if fmt.Sprint(c()) == want {
+			found = true
+		}
+	}
+
+	if !found {
+		t.Errorf("nothing in the batch copied %q", want)
+	}
+
+	if !strings.Contains(want, "/redfish/v1/Systems/1'") {
+		t.Errorf("curl line = %q, want the current resource", want)
+	}
+
+	if strings.Contains(want, "User-Agent") {
+		t.Errorf("curl line = %q, want no User-Agent header", want)
+	}
+}
+
+// A copy that got no further than OSC 52 cannot be confirmed, and must not be
+// announced as done: a terminal that drops the sequence says nothing back.
+func TestCopyReportsOnlyWhatItCanConfirm(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, "/redfish/v1/Systems/1")
+
+	confirmed, _ := m.Update(tui.CopyResultMsg(nil))
+	if !strings.Contains(screen(asModel(confirmed)), "copied to the clipboard") {
+		t.Errorf("want the copy confirmed, footer:\n%s", footerLine(asModel(confirmed)))
+	}
+
+	blind, _ := m.Update(tui.CopyResultMsg(errors.New("no clipboard utilities available")))
+	if !strings.Contains(screen(asModel(blind)), "OSC 52") {
+		t.Errorf("want an unconfirmed copy to say so, footer:\n%s", footerLine(asModel(blind)))
 	}
 }
 

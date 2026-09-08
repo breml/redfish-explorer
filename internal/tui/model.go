@@ -166,6 +166,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case fetchedMsg:
 		return m.handleFetched(msg), nil
 
+	case copiedMsg:
+		return m.handleCopied(msg), nil
+
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 
@@ -374,6 +377,9 @@ func (m Model) handleNavigationKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Reload):
 		return m.startFetch(m.current, skipCache, navStay, m.cursor)
 
+	case key.Matches(msg, m.keys.Copy):
+		return m.copyCurl()
+
 	case key.Matches(msg, m.keys.Location):
 		return m.startEditing()
 
@@ -411,6 +417,22 @@ func (m Model) followAction(link redfish.Link) (tea.Model, tea.Cmd) {
 	m.notice = "POST target — not retrievable; write support planned"
 
 	return m, nil
+}
+
+// copyCurl puts the curl command for the current location on the clipboard.
+//
+// Both mechanisms are used, because neither covers every case. OSC 52 travels
+// down an SSH connection, which is how a BMC is usually reached, but a great
+// many terminals refuse to act on it — VTE-based ones never have, and tmux and
+// xterm need it turned on. The local clipboard tools always work, but only on
+// the machine rfx itself runs on. What lands is the same either way, and the
+// footer reports which of the two could actually be confirmed.
+func (m Model) copyCurl() (tea.Model, tea.Cmd) {
+	// What is copied is exactly what the header shows, password masking
+	// included: --show-password governs both.
+	command := redfish.Curl(m.cfg, m.curlResource())
+
+	return m, tea.Batch(tea.SetClipboard(command), copyCmd(command))
 }
 
 // goUp walks one level towards the service root.

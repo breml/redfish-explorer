@@ -92,6 +92,7 @@ run, unwise when the screen is being shared.
 | `backspace` / `left`      | go back to the previous location                   |
 | `L`                       | edit the current endpoint, `enter` to load it      |
 | `r`                       | reload the current location, bypassing the cache   |
+| `y`                       | copy the `curl` command to the clipboard           |
 | `page up` / `page down`   | scroll the response pane                           |
 | `?`                       | help overlay                                       |
 | `q` / `ctrl+c`            | quit                                               |
@@ -130,8 +131,22 @@ list: the extensions worth finding are the ones nobody has a list of.
 
 The header carries the `curl` command for the current location on a single line,
 between the path and the breadcrumb, so it can be selected and copied in one
-gesture. It omits the `User-Agent` header rfx sets on the real request: `curl`
-sends its own, and no service answers differently because of it.
+gesture. `y` copies it outright, which also gets around the line being truncated
+on a narrow terminal. It omits the `User-Agent` header rfx sets on the real
+request: `curl` sends its own, and no service answers differently because of it.
+
+`y` copies by two routes at once, because neither covers every case. OSC 52
+travels down an SSH connection, which is how a BMC is usually reached, but many
+terminals refuse to act on it: VTE-based ones (GNOME Terminal, Tilix,
+Terminator) never have, and `tmux` (`set -g set-clipboard on`) and `xterm`
+(`allowWindowOps`) need it turned on. The local clipboard always works, but only
+on the machine rfx itself runs on, and on Linux it needs `xclip`, `xsel` or
+`wl-copy` installed.
+
+The footer says which of the two got through: `copied to the clipboard` means
+the local one was written and the text is definitely there, while `sent as
+OSC 52` means only the blind route was left and the terminal may have dropped
+it.
 
 The right pane shows the response status and headers, and the pretty-printed
 body. Keys stay in the order the service sent them, because Redfish services

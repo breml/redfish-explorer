@@ -3,13 +3,19 @@ module github.com/breml/redfish-explorer
 go 1.26.7
 
 require (
+	charm.land/bubbles/v2 v2.2.1
+	charm.land/bubbletea/v2 v2.0.9
+	charm.land/lipgloss/v2 v2.0.6
+	github.com/atotto/clipboard v0.1.4
+	github.com/charmbracelet/x/ansi v0.11.8
+	github.com/stmcginnis/gofish v0.25.0
+)
+
+require (
 	4d63.com/gocheckcompilerdirectives v1.4.0 // indirect
 	4d63.com/gochecknoglobals v0.2.2 // indirect
 	al.essio.dev/pkg/shellescape v1.6.0 // indirect
 	cel.dev/expr v0.25.2 // indirect
-	charm.land/bubbles/v2 v2.2.1 // indirect
-	charm.land/bubbletea/v2 v2.0.9 // indirect
-	charm.land/lipgloss/v2 v2.0.6 // indirect
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/auth v0.23.1 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
@@ -51,7 +57,6 @@ require (
 	github.com/alingse/nilnesserr v0.2.0 // indirect
 	github.com/ashanbrown/forbidigo/v2 v2.3.1 // indirect
 	github.com/ashanbrown/makezero/v2 v2.2.1 // indirect
-	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.43.4 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.16 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.32.35 // indirect
@@ -91,7 +96,6 @@ require (
 	github.com/charithe/durationcheck v0.0.11 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20260811164956-006e29f97886 // indirect
-	github.com/charmbracelet/x/ansi v0.11.8 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
 	github.com/charmbracelet/x/windows v0.2.2 // indirect
@@ -277,7 +281,6 @@ require (
 	github.com/spiffe/go-spiffe/v2 v2.8.1 // indirect
 	github.com/ssgreg/nlreturn/v2 v2.2.1 // indirect
 	github.com/stbenjam/no-sprintf-host-port v0.3.1 // indirect
-	github.com/stmcginnis/gofish v0.25.0 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/stretchr/testify v1.12.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect

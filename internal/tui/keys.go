@@ -12,6 +12,7 @@ type keyMap struct {
 	Tab      key.Binding
 	Location key.Binding
 	Reload   key.Binding
+	Copy     key.Binding
 	PageUp   key.Binding
 	PageDown key.Binding
 	Cancel   key.Binding
@@ -54,6 +55,10 @@ func newKeyMap() keyMap {
 			key.WithKeys("r"),
 			key.WithHelp("r", "reload"),
 		),
+		Copy: key.NewBinding(
+			key.WithKeys("y"),
+			key.WithHelp("y", "copy"),
+		),
 		PageUp: key.NewBinding(
 			key.WithKeys("pgup"),
 			key.WithHelp("pgup", "scroll up"),
@@ -83,7 +88,7 @@ func newKeyMap() keyMap {
 
 // ShortHelp returns the bindings shown on the footer line.
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Tab, k.Enter, k.Back, k.Location, k.Reload, k.Help, k.Quit}
+	return []key.Binding{k.Tab, k.Enter, k.Back, k.Location, k.Reload, k.Copy, k.Help, k.Quit}
 }
 
 // FullHelp returns every binding, grouped into columns for the help overlay.
@@ -91,6 +96,6 @@ func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Enter, k.Back},
 		{k.Tab, k.PageUp, k.PageDown},
-		{k.Location, k.Reload, k.Help, k.Quit},
+		{k.Location, k.Reload, k.Copy, k.Help, k.Quit},
 	}
 }
