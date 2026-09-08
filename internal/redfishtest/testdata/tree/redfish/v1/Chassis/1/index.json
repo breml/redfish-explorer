@@ -1,0 +1,17 @@
+{
+  "@odata.type": "#Chassis.v1_26_0.Chassis",
+  "@odata.id": "/redfish/v1/Chassis/1",
+  "Id": "1",
+  "Name": "Contoso Chassis",
+  "ChassisType": "RackMount",
+  "Thermal": {
+    "@odata.id": "/redfish/v1/Chassis/1/Thermal"
+  },
+  "Links": {
+    "ComputerSystems": [
+      {
+        "@odata.id": "/redfish/v1/Systems/1"
+      }
+    ]
+  }
+}

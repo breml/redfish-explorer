@@ -1,0 +1,39 @@
+{
+  "@odata.type": "#ServiceRoot.v1_15_0.ServiceRoot",
+  "@odata.id": "/redfish/v1",
+  "@odata.context": "/redfish/v1/$metadata#ServiceRoot.ServiceRoot",
+  "Id": "RootService",
+  "Name": "Root Service",
+  "RedfishVersion": "1.18.0",
+  "UUID": "92384634-2938-2342-8820-489239905423",
+  "Vendor": "Contoso",
+  "Product": "Contoso BMC",
+  "Systems": {
+    "@odata.id": "/redfish/v1/Systems"
+  },
+  "Chassis": {
+    "@odata.id": "/redfish/v1/Chassis"
+  },
+  "Managers": {
+    "@odata.id": "/redfish/v1/Managers"
+  },
+  "SessionService": {
+    "@odata.id": "/redfish/v1/SessionService"
+  },
+  "Registries": {
+    "@odata.id": "/redfish/v1/Registries"
+  },
+  "Links": {
+    "Sessions": {
+      "@odata.id": "/redfish/v1/SessionService/Sessions"
+    }
+  },
+  "Oem": {
+    "Contoso": {
+      "@odata.type": "#ContosoServiceRootExt.v1_0_0.ContosoServiceRootExt",
+      "ResourceDirectory": {
+        "@odata.id": "/redfish/v1/ResourceDirectory"
+      }
+    }
+  }
+}

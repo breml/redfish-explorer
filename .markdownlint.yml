@@ -1,0 +1,8 @@
+---
+
+# Line length: prose wraps at 80, but code blocks and tables cannot be wrapped
+# without destroying them.
+MD013:
+  line_length: 80
+  code_blocks: false
+  tables: false
