@@ -68,8 +68,15 @@ type Model struct {
 	spinner spinner.Model
 	help    help.Model
 
+	// pending is the resource currently being fetched, if any.
+	pending string
+	loading bool
+
 	// err is a failure to fetch: it replaces the response pane.
 	err error
+	// errResource is the resource that failed, so the pane can still show the
+	// curl command for it and the user can retry by hand.
+	errResource string
 	// linkErr is a failure to read links out of a response that did arrive.
 	// It explains an empty link pane and must never hide the response, since
 	// showing exactly what the service sent is the point of the tool.
@@ -77,8 +84,8 @@ type Model struct {
 	notice  string
 }
 
-// New returns a model showing the service root of a connected service.
-func New(client *redfish.Client, store *cache.Cache) Model {
+// New returns a model that will load resource from a connected service.
+func New(client *redfish.Client, store *cache.Cache, resource string) Model {
 	m := Model{
 		client:  client,
 		store:   store,
@@ -86,7 +93,11 @@ func New(client *redfish.Client, store *cache.Cache) Model {
 		service: client.Service(),
 		theme:   NewTheme(),
 		keys:    newKeyMap(),
-		current: redfish.RootPath,
+		current: resource,
+		// Init fetches this straight away, so the guard in handleFetched has
+		// to know about it from the start.
+		pending: resource,
+		loading: true,
 		body:    viewport.New(),
 		editor:  textinput.New(),
 		spinner: spinner.New(),
@@ -98,9 +109,9 @@ func New(client *redfish.Client, store *cache.Cache) Model {
 	return m
 }
 
-// Init starts the spinner. Fetching arrives with the next task.
+// Init loads the service root.
 func (m Model) Init() tea.Cmd {
-	return m.spinner.Tick
+	return tea.Batch(m.spinner.Tick, fetchCmd(m.client, m.store, m.current, useCache))
 }
 
 // Update handles one message.
@@ -111,6 +122,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
+
+	case fetchedMsg:
+		return m.handleFetched(msg), nil
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -139,11 +153,12 @@ func (m Model) WithResponse(resource string, resp *redfish.Response, fromCache b
 	m.resp = resp
 	m.fromCache = fromCache
 	m.notice = ""
+	m.err = nil
+	m.errResource = ""
 
 	groups, _, err := redfish.ExtractLinks(resp)
 	m.groups = groups
 	m.linkErr = err
-	m.err = nil
 
 	m.rows = buildRows(groups, resource == redfish.RootPath)
 	m.cursor = m.firstSelectable()
@@ -168,8 +183,7 @@ func (m Model) handleResize(msg tea.WindowSizeMsg) Model {
 	return m
 }
 
-// handleKey handles a key press in normal mode. Editing arrives with a later
-// task, so every key is a navigation key for now.
+// handleKey handles a key press in normal mode.
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Quit):
@@ -180,6 +194,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 		return m, nil
 
+	// Paging always scrolls the response pane, whichever pane has focus.
 	case key.Matches(msg, m.keys.PageUp):
 		m.body.PageUp()
 
@@ -196,9 +211,59 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Down):
 		return m.moveDown(), nil
 
+	case key.Matches(msg, m.keys.Enter):
+		return m.follow()
+
+	case key.Matches(msg, m.keys.Back):
+		return m.goUp()
+
+	case key.Matches(msg, m.keys.Reload):
+		return m.startFetch(m.current, skipCache)
+
 	default:
 		return m, nil
 	}
+}
+
+// follow acts on the highlighted row.
+func (m Model) follow() (tea.Model, tea.Cmd) {
+	r, ok := m.selectedRow()
+	if !ok {
+		return m, nil
+	}
+
+	if r.parent {
+		return m.goUp()
+	}
+
+	if r.link.Kind == redfish.KindAction {
+		return m.followAction(r.link)
+	}
+
+	return m.startFetch(r.link.Target, useCache)
+}
+
+// followAction opens an action's ActionInfo, which is the only part of an
+// action a GET can reach. The target itself answers to POST and is listed so
+// that vendor actions can be discovered at all.
+func (m Model) followAction(link redfish.Link) (tea.Model, tea.Cmd) {
+	if link.ActionInfo != "" {
+		return m.startFetch(link.ActionInfo, useCache)
+	}
+
+	m.notice = "POST target — not retrievable; write support planned"
+
+	return m, nil
+}
+
+// goUp walks one level towards the service root.
+func (m Model) goUp() (tea.Model, tea.Cmd) {
+	parent := redfish.Parent(m.current)
+	if parent == m.current {
+		return m, nil
+	}
+
+	return m.startFetch(parent, useCache)
 }
 
 // moveUp moves the cursor or scrolls the response pane, by which pane has focus.

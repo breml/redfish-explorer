@@ -42,6 +42,10 @@ func (m Model) renderPathLine(width int) string {
 func (m Model) metadata() string {
 	var parts []string
 
+	if m.loading {
+		parts = append(parts, m.spinner.View()+" loading")
+	}
+
 	service := m.service
 	if service.RedfishVersion != "" {
 		parts = append(parts, "RedfishVersion "+service.RedfishVersion)

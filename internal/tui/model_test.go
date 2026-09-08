@@ -4,7 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/breml/redfish-explorer/internal/cache"
 	"github.com/breml/redfish-explorer/internal/redfish"
@@ -18,9 +20,16 @@ const (
 	termHeight = 40
 )
 
-// newModel returns a model connected to a fixture service, sized and showing
-// the given resource.
+// newModel returns a model connected to a fixture service, sized, and having
+// loaded the given resource through the real fetch path.
 func newModel(t *testing.T, resource string) tui.Model {
+	t.Helper()
+
+	return newModelWithCache(t, resource, cache.New(0))
+}
+
+// newModelWithCache is newModel with a caller-supplied cache.
+func newModelWithCache(t *testing.T, resource string, store *cache.Cache) tui.Model {
 	t.Helper()
 
 	server := redfishtest.NewServer()
@@ -33,14 +42,42 @@ func newModel(t *testing.T, resource string) tui.Model {
 
 	t.Cleanup(client.Close)
 
-	resp, err := client.Fetch(t.Context(), resource)
-	if err != nil {
-		t.Fatalf("Fetch(%s): %v", resource, err)
+	m := tui.New(client, store, resource)
+	m = resize(m, termWidth, termHeight)
+
+	return drive(t, m, m.Init())
+}
+
+// drive runs a command and feeds every message it produces back through Update,
+// so a test exercises the same path the program does.
+func drive(t *testing.T, m tui.Model, cmd tea.Cmd) tui.Model {
+	t.Helper()
+
+	if cmd == nil {
+		return m
 	}
 
-	m := tui.New(client, cache.New(0))
-	m = resize(m, termWidth, termHeight)
-	return m.WithResponse(resource, resp, false)
+	msg := cmd()
+
+	batch, ok := msg.(tea.BatchMsg)
+	if ok {
+		for _, c := range batch {
+			m = drive(t, m, c)
+		}
+
+		return m
+	}
+
+	// The spinner reschedules itself forever, which a synchronous test cannot
+	// follow. Its state does not affect anything under test.
+	_, isTick := msg.(spinner.TickMsg)
+	if msg == nil || isTick {
+		return m
+	}
+
+	updated, next := m.Update(msg)
+
+	return drive(t, asModel(updated), next)
 }
 
 // resize delivers a window size to a model.
@@ -60,22 +97,34 @@ func asModel(model tea.Model) tui.Model {
 	return m
 }
 
-// press delivers one key press to a model.
-func press(m tui.Model, keys string) tui.Model {
-	updated, _ := m.Update(tea.KeyPressMsg{Code: rune(keys[0]), Text: keys})
+// press delivers a printable key and settles whatever it starts.
+func press(t *testing.T, m tui.Model, keys string) tui.Model {
+	t.Helper()
 
-	return asModel(updated)
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: rune(keys[0]), Text: keys})
+
+	return drive(t, asModel(updated), cmd)
 }
 
-// pressCode delivers a named key, such as tab or pgdown.
-func pressCode(m tui.Model, code rune) tui.Model {
-	updated, _ := m.Update(tea.KeyPressMsg{Code: code})
+// pressCode delivers a named key, such as tab, enter or backspace.
+func pressCode(t *testing.T, m tui.Model, code rune) tui.Model {
+	t.Helper()
 
-	return asModel(updated)
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: code})
+
+	return drive(t, asModel(updated), cmd)
 }
 
-// screen renders a model.
+// screen renders a model as plain text. Styling is stripped because an ANSI
+// escape such as "\x1b[1;38;2;..." contains digits and letters of its own, and
+// a substring assertion would otherwise match the colour rather than the text.
 func screen(m tui.Model) string {
+	return ansi.Strip(styled(m))
+}
+
+// styled renders a model with its escape sequences intact, for the few tests
+// that care about how something is drawn rather than what it says.
+func styled(m tui.Model) string {
 	return m.View().Content
 }
 
@@ -207,13 +256,13 @@ func TestCursorMovesAndSkipsGroupHeaders(t *testing.T) {
 	m := newModel(t, "/redfish/v1/Systems/1")
 
 	// Down from ".." lands on the first link, not on the "Resource" heading.
-	m = press(m, "j")
+	m = press(t, m, "j")
 
 	if !strings.Contains(lineWith(t, m, "Bios"), "▸") {
 		t.Errorf("cursor should be on Bios, screen:\n%s", screen(m))
 	}
 
-	m = press(m, "k")
+	m = press(t, m, "k")
 
 	if !strings.Contains(lineWith(t, m, ".."), "▸") {
 		t.Error("cursor should be back on ..")
@@ -225,13 +274,13 @@ func TestCursorStopsAtTheEnds(t *testing.T) {
 
 	m := newModel(t, "/redfish/v1/Systems/1")
 
-	m = press(m, "k")
+	m = press(t, m, "k")
 	if !strings.Contains(lineWith(t, m, ".."), "▸") {
 		t.Error("cursor should stay on the first row")
 	}
 
 	for range 40 {
-		m = press(m, "j")
+		m = press(t, m, "j")
 	}
 
 	if !strings.Contains(lineWith(t, m, "SmartStorageUri"), "▸") {
@@ -243,7 +292,7 @@ func TestFooterShowsTheSelectedTarget(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(t, "/redfish/v1/Systems/1")
-	m = press(m, "j")
+	m = press(t, m, "j")
 
 	lines := strings.Split(screen(m), "\n")
 	footer := lines[len(lines)-1]
@@ -272,17 +321,17 @@ func TestTabMovesFocus(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(t, "/redfish/v1/Systems/1")
-	before := screen(m)
+	before := styled(m)
 
-	m = pressCode(m, '\t')
+	m = pressCode(t, m, '\t')
 
-	if screen(m) == before {
+	if styled(m) == before {
 		t.Error("tab should change which pane is highlighted")
 	}
 
-	m = pressCode(m, '\t')
+	m = pressCode(t, m, '\t')
 
-	if screen(m) != before {
+	if styled(m) != before {
 		t.Error("tab twice should return to the first pane")
 	}
 }
@@ -304,7 +353,7 @@ func TestLayoutSurvivesResizing(t *testing.T) {
 
 	for _, size := range sizes {
 		m = resize(m, size.width, size.height)
-		out := screen(m)
+		out := styled(m)
 
 		for i, line := range strings.Split(out, "\n") {
 			if width := lineWidth(line); width > size.width {

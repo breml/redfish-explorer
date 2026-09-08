@@ -83,13 +83,9 @@ func run(args []string, stdout io.Writer, stderr io.Writer) error {
 
 	defer client.Close()
 
-	// Navigation arrives with the next task; for now the UI shows one resource.
-	resp, err := client.Fetch(context.Background(), cfg.resource)
-	if err != nil {
-		return err
-	}
-
-	model := tui.New(client, cache.New(cfg.cacheTTL)).WithResponse(cfg.resource, resp, false)
+	// The model loads the starting resource itself, so that a slow service
+	// shows a spinner rather than a blank terminal.
+	model := tui.New(client, cache.New(cfg.cacheTTL), cfg.resource)
 
 	_, err = tea.NewProgram(model).Run()
 	if err != nil {

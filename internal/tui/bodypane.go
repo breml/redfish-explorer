@@ -18,7 +18,9 @@ const jsonIndent = "  "
 func (m Model) renderBody() string {
 	var b strings.Builder
 
-	b.WriteString(m.theme.Curl.Render(redfish.Curl(m.cfg, m.current)))
+	// On a failure the command shown is the one that failed, not the one for
+	// the location the user is still standing on: it is there to be retried.
+	b.WriteString(m.theme.Curl.Render(redfish.Curl(m.cfg, m.curlResource())))
 	b.WriteString("\n\n")
 
 	if m.err != nil {
@@ -40,6 +42,15 @@ func (m Model) renderBody() string {
 	b.WriteString(m.renderResponseBody())
 
 	return b.String()
+}
+
+// curlResource is the resource the rendered curl command addresses.
+func (m Model) curlResource() string {
+	if m.err != nil && m.errResource != "" {
+		return m.errResource
+	}
+
+	return m.current
 }
 
 // renderHeaders lists the response headers, one per line, in a stable order.

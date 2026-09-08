@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -20,6 +21,16 @@ import (
 
 // contentTypeJSON is what rfx asks every Redfish service for.
 const contentTypeJSON = "application/json"
+
+// Transport tuning, matching the Go defaults except where a BMC needs slack.
+const (
+	dialTimeout           = 30 * time.Second
+	keepAlive             = 30 * time.Second
+	maxIdleConns          = 100
+	idleConnTimeout       = 90 * time.Second
+	tlsHandshakeTimeout   = 10 * time.Second
+	expectContinueTimeout = time.Second
+)
 
 // Config describes the service rfx talks to and how requests are rendered.
 type Config struct {
@@ -87,6 +98,14 @@ func Connect(ctx context.Context, cfg Config) (*Client, error) {
 		Password:  cfg.Password,
 		Insecure:  cfg.Insecure,
 		BasicAuth: true,
+		// Supplying the transport keeps gofish away from http.DefaultTransport.
+		// Left to itself it copies the default transport's *tls.Config pointer
+		// and then writes InsecureSkipVerify through it (gofish client.go:164),
+		// which both races between concurrent connections and quietly disables
+		// certificate verification for everything else in the process.
+		// See: https://github.com/stmcginnis/gofish/issues/567
+		HTTPClient:        &http.Client{Transport: transport(cfg)},
+		NoModifyTransport: true,
 	})
 	if err != nil {
 		return nil, connectError(cfg, err)
@@ -128,7 +147,7 @@ func (c *Client) Close() {
 // when the request could not be made at all; any HTTP status, including 4xx and
 // 5xx, is returned as a Response.
 func (c *Client) Fetch(ctx context.Context, resource string) (*Response, error) {
-	target, err := c.resolve(resource)
+	target, err := c.Resolve(resource)
 	if err != nil {
 		return nil, err
 	}
@@ -169,6 +188,71 @@ func (c *Client) Fetch(ctx context.Context, resource string) (*Response, error) 
 	}, nil
 }
 
+// probeTarget picks a resource from the service root that a service is
+// expected to protect, in decreasing order of how universally it is present.
+func probeTarget(serviceRoot []byte) string {
+	var root map[string]json.RawMessage
+
+	err := json.Unmarshal(serviceRoot, &root)
+	if err != nil {
+		return ""
+	}
+
+	for _, key := range []string{"Systems", "Chassis", "Managers", "AccountService", "SessionService"} {
+		raw, ok := root[key]
+		if !ok {
+			continue
+		}
+
+		var link struct {
+			ID string `json:"@odata.id"`
+		}
+
+		err = json.Unmarshal(raw, &link)
+		if err == nil && link.ID != "" {
+			return link.ID
+		}
+	}
+
+	return ""
+}
+
+// Resolve turns a user-supplied resource into an absolute URL on the connected
+// endpoint, refusing anything that would leave it. It is what the cache keys
+// on, so that a key stays correct if rfx ever talks to more than one endpoint.
+func (c *Client) Resolve(resource string) (string, error) {
+	resource = strings.TrimSpace(resource)
+	if resource == "" {
+		resource = RootPath
+	}
+
+	if strings.HasPrefix(resource, "/") {
+		return c.cfg.Endpoint + resource, nil
+	}
+
+	parsed, err := url.Parse(resource)
+	if err != nil {
+		return "", fmt.Errorf("parsing resource %q: %w", resource, err)
+	}
+
+	if !parsed.IsAbs() {
+		return "", fmt.Errorf("resource %q is neither an absolute path nor an absolute URL", resource)
+	}
+
+	base, err := url.Parse(c.cfg.Endpoint)
+	if err != nil {
+		return "", fmt.Errorf("parsing endpoint %q: %w", c.cfg.Endpoint, err)
+	}
+
+	// Following a link to another host would silently query a different
+	// machine than the one named in the header.
+	if !strings.EqualFold(parsed.Host, base.Host) {
+		return "", fmt.Errorf("refusing to fetch %s: not on the connected endpoint %s", resource, c.cfg.Endpoint)
+	}
+
+	return c.cfg.Endpoint + parsed.RequestURI(), nil
+}
+
 // verifyCredentials probes one protected resource so that bad credentials are
 // reported before the terminal UI starts.
 //
@@ -204,68 +288,23 @@ func (c *Client) verifyCredentials(ctx context.Context) error {
 	return nil
 }
 
-// probeTarget picks a resource from the service root that a service is
-// expected to protect, in decreasing order of how universally it is present.
-func probeTarget(serviceRoot []byte) string {
-	var root map[string]json.RawMessage
-
-	err := json.Unmarshal(serviceRoot, &root)
-	if err != nil {
-		return ""
+// transport builds the HTTP transport rfx talks to a service with.
+func transport(cfg Config) *http.Transport {
+	return &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: dialTimeout, KeepAlive: keepAlive}).DialContext,
+		MaxIdleConns:          maxIdleConns,
+		IdleConnTimeout:       idleConnTimeout,
+		TLSHandshakeTimeout:   tlsHandshakeTimeout,
+		ExpectContinueTimeout: expectContinueTimeout,
+		ForceAttemptHTTP2:     true,
+		TLSClientConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			// BMCs almost always present a self-signed certificate. Skipping
+			// verification is an explicit opt-in, never a default.
+			InsecureSkipVerify: cfg.Insecure, //nolint:gosec // Requested by --insecure.
+		},
 	}
-
-	for _, key := range []string{"Systems", "Chassis", "Managers", "AccountService", "SessionService"} {
-		raw, ok := root[key]
-		if !ok {
-			continue
-		}
-
-		var link struct {
-			ID string `json:"@odata.id"`
-		}
-
-		err = json.Unmarshal(raw, &link)
-		if err == nil && link.ID != "" {
-			return link.ID
-		}
-	}
-
-	return ""
-}
-
-// resolve turns a user-supplied resource into an absolute URL on the connected
-// endpoint, refusing anything that would leave it.
-func (c *Client) resolve(resource string) (string, error) {
-	resource = strings.TrimSpace(resource)
-	if resource == "" {
-		resource = RootPath
-	}
-
-	if strings.HasPrefix(resource, "/") {
-		return c.cfg.Endpoint + resource, nil
-	}
-
-	parsed, err := url.Parse(resource)
-	if err != nil {
-		return "", fmt.Errorf("parsing resource %q: %w", resource, err)
-	}
-
-	if !parsed.IsAbs() {
-		return "", fmt.Errorf("resource %q is neither an absolute path nor an absolute URL", resource)
-	}
-
-	base, err := url.Parse(c.cfg.Endpoint)
-	if err != nil {
-		return "", fmt.Errorf("parsing endpoint %q: %w", c.cfg.Endpoint, err)
-	}
-
-	// Following a link to another host would silently query a different
-	// machine than the one named in the header.
-	if !strings.EqualFold(parsed.Host, base.Host) {
-		return "", fmt.Errorf("refusing to fetch %s: not on the connected endpoint %s", resource, c.cfg.Endpoint)
-	}
-
-	return c.cfg.Endpoint + parsed.RequestURI(), nil
 }
 
 // serviceInfo extracts the header metadata from a ServiceRoot.
