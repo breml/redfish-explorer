@@ -39,8 +39,9 @@ const (
 
 // Layout constants.
 const (
-	// headerHeight covers the path line, the breadcrumb and the rule below them.
-	headerHeight = 3
+	// headerHeight covers the path line, the curl command, the breadcrumb and
+	// the rule below them.
+	headerHeight = 4
 	// footerHeight covers the single footer line.
 	footerHeight = 1
 	// frameWidth and frameHeight are what a pane border costs.

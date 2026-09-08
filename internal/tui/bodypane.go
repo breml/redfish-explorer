@@ -5,19 +5,13 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-
-	"github.com/breml/redfish-explorer/internal/redfish"
 )
 
-// renderBody composes the response pane: the curl command that produced the
-// response, then its status and headers, then its body.
+// renderBody composes the response pane: the status and headers of the
+// response, then its body. The curl command that produced it lives in the
+// header, where it is one line and easy to copy.
 func (m Model) renderBody() string {
 	var b strings.Builder
-
-	// On a failure the command shown is the one that failed, not the one for
-	// the location the user is still standing on: it is there to be retried.
-	b.WriteString(m.theme.Curl.Render(redfish.Curl(m.cfg, m.curlResource())))
-	b.WriteString("\n\n")
 
 	if m.err != nil {
 		b.WriteString(m.theme.Error.Render(m.err.Error()))
@@ -38,15 +32,6 @@ func (m Model) renderBody() string {
 	b.WriteString(m.renderResponseBody())
 
 	return b.String()
-}
-
-// curlResource is the resource the rendered curl command addresses.
-func (m Model) curlResource() string {
-	if m.err != nil && m.errResource != "" {
-		return m.errResource
-	}
-
-	return m.current
 }
 
 // renderHeaders lists the response headers, one per line, in a stable order.

@@ -40,15 +40,30 @@ func currentPath(t *testing.T, m tui.Model) string {
 	return fields[0]
 }
 
-// cursorLine returns the rendered row that carries the cursor.
+// cursorLine returns the link pane row that carries the cursor. The two panes
+// are drawn side by side, so a whole screen line also holds whatever the
+// response pane has at that height — text a caller searching for a link label
+// must not match against.
 func cursorLine(m tui.Model) string {
 	for line := range strings.SplitSeq(screen(m), "\n") {
 		if strings.Contains(line, "▸") {
-			return line
+			return linkPaneOf(line)
 		}
 	}
 
 	return ""
+}
+
+// linkPaneOf cuts a screen line down to the link pane, discarding the response
+// pane beside it. The two borders meeting is where one ends and the other
+// begins.
+func linkPaneOf(line string) string {
+	pane, _, found := strings.Cut(line, "││")
+	if !found {
+		return line
+	}
+
+	return pane
 }
 
 // moveTo walks the cursor down until the given label is highlighted.
@@ -371,6 +386,33 @@ func TestReloadBypassesTheCache(t *testing.T) {
 
 	if strings.Contains(screen(m), "cached") {
 		t.Error("reload must replace the cached entry with a fresh response")
+	}
+}
+
+// A resource that cannot be reached at all keeps the user where they are, and
+// the header shows the command for the resource that failed rather than for the
+// one still on screen, so that the request can be retried by hand.
+func TestAnUnreachableServiceKeepsTheLocationAndShowsItsCurl(t *testing.T) {
+	t.Parallel()
+
+	m, server := newModelWithServer(t, "/redfish/v1/Systems/1", cache.New(0))
+
+	server.Close()
+
+	m = moveTo(t, m, "Bios")
+	m = pressCode(t, m, keyEnter)
+
+	if got := currentPath(t, m); got != "/redfish/v1/Systems/1" {
+		t.Errorf("path = %q, want a failed step to leave the location alone", got)
+	}
+
+	if !strings.Contains(screen(m), "fetching /redfish/v1/Systems/1/Bios") {
+		t.Errorf("want the failure reported, screen:\n%s", screen(m))
+	}
+
+	curl := strings.Split(screen(m), "\n")[1]
+	if !strings.Contains(curl, "/redfish/v1/Systems/1/Bios'") {
+		t.Errorf("curl line = %q, want it to address the resource that failed", curl)
 	}
 }
 

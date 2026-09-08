@@ -15,19 +15,20 @@ straight into a bug report or a script.
 
 ```text
  /redfish/v1/Systems/1                                      RedfishVersion 1.18.0 · 200 OK · 41ms
+ curl -s -k -u 'admin:********' -H 'Accept: application/json' 'https://10.0.0.5/redfish/v1/Systems…
  root > Systems > 1
 ┌ Links (14) ──────────────┬ Response ──────────────────────────────────────────────────────────┐
-│  ..                      │ curl -s -k \                                                       │
-│ ── Resource ──           │   -u 'admin:********' \                                            │
-│  Bios                    │   -H 'Accept: application/json' \                                  │
-│  Storage                 │   'https://10.0.0.5/redfish/v1/Systems/1'                          │
-│ ── Links ──              │                                                                    │
-│  Chassis[0]              │ HTTP/1.1 200 OK                                                    │
-│ ── Actions ──            │ Content-Type: application/json;charset=utf-8                       │
-│  #ComputerSystem.Reset ⚡ │ OData-Version: 4.0                                                 │
-│ ── Oem · Hpe ──   (oem)  │                                                                    │
-│▸ Thermal           (oem) │ {                                                                  │
-│  SmartStorage      (oem) │   "@odata.id": "/redfish/v1/Systems/1",                            │
+│  ..                      │ HTTP/1.1 200 OK                                                    │
+│ ── Resource ──           │ Content-Type: application/json;charset=utf-8                       │
+│  Bios                    │ OData-Version: 4.0                                                 │
+│  Storage                 │                                                                    │
+│ ── Links ──              │ {                                                                  │
+│  Chassis[0]              │   "@odata.id": "/redfish/v1/Systems/1",                            │
+│ ── Actions ──            │   "Id": "1",                                                       │
+│  #ComputerSystem.Reset ⚡ │   "Name": "Contoso Server",                                        │
+│ ── Oem · Hpe ──   (oem)  │   "PowerState": "On",                                              │
+│▸ Thermal           (oem) │   "Bios": {                                                        │
+│  SmartStorage      (oem) │     "@odata.id": "/redfish/v1/Systems/1/Bios"                      │
 └──────────────────────────┴────────────────────────────────────────────────────────────────────┘
  /redfish/v1/Systems/1/Oem/Hpe/Thermal        tab panes · L location · r reload · ? help · q quit
 ```
@@ -127,9 +128,14 @@ highlighted in the raw JSON too, so a vendor block is as obvious in the body as
 in the link list. The vendor name comes from the document, never from a built-in
 list: the extensions worth finding are the ones nobody has a list of.
 
-The right pane shows the exact `curl` command for the current location, the
-response status and headers, and the pretty-printed body. Keys stay in the order
-the service sent them, because Redfish services order them meaningfully.
+The header carries the `curl` command for the current location on a single line,
+between the path and the breadcrumb, so it can be selected and copied in one
+gesture. It omits the `User-Agent` header rfx sets on the real request: `curl`
+sends its own, and no service answers differently because of it.
+
+The right pane shows the response status and headers, and the pretty-printed
+body. Keys stay in the order the service sent them, because Redfish services
+order them meaningfully.
 
 `L` opens the location bar for typing or pasting a path. A full URL copied from
 a browser is accepted and reduced to its path; one naming a different host is

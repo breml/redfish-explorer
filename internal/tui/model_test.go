@@ -1,6 +1,7 @@
 package tui_test
 
 import (
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +34,16 @@ func newModel(t *testing.T, resource string) tui.Model {
 func newModelWithCache(t *testing.T, resource string, store *cache.Cache) tui.Model {
 	t.Helper()
 
+	m, _ := newModelWithServer(t, resource, store)
+
+	return m
+}
+
+// newModelWithServer is newModelWithCache, handing back the fixture service so
+// that a test can take it away and exercise a failure to reach it.
+func newModelWithServer(t *testing.T, resource string, store *cache.Cache) (tui.Model, *httptest.Server) {
+	t.Helper()
+
 	server := redfishtest.NewServer()
 	t.Cleanup(server.Close)
 
@@ -46,7 +57,7 @@ func newModelWithCache(t *testing.T, resource string, store *cache.Cache) tui.Mo
 	m := tui.New(client, store, resource)
 	m = resize(m, termWidth, termHeight)
 
-	return drive(t, m, m.Init())
+	return drive(t, m, m.Init()), server
 }
 
 // drive runs a command and feeds every message it produces back through Update,
@@ -158,8 +169,8 @@ func TestHeaderShowsPathAndBreadcrumb(t *testing.T) {
 	m := newModel(t, "/redfish/v1/Systems/1")
 
 	lines := strings.Split(screen(m), "\n")
-	if len(lines) < 2 {
-		t.Fatalf("screen has %d lines, want at least 2", len(lines))
+	if len(lines) < 3 {
+		t.Fatalf("screen has %d lines, want at least 3", len(lines))
 	}
 
 	if !strings.Contains(lines[0], "/redfish/v1/Systems/1") {
@@ -170,8 +181,12 @@ func TestHeaderShowsPathAndBreadcrumb(t *testing.T) {
 		t.Errorf("first line = %q, want the Redfish version", lines[0])
 	}
 
-	if !strings.Contains(lines[1], "root > Systems > 1") {
-		t.Errorf("second line = %q, want the breadcrumb", lines[1])
+	if !strings.Contains(lines[1], "curl -s") {
+		t.Errorf("second line = %q, want the curl command", lines[1])
+	}
+
+	if !strings.Contains(lines[2], "root > Systems > 1") {
+		t.Errorf("third line = %q, want the breadcrumb", lines[2])
 	}
 }
 
@@ -234,13 +249,13 @@ func TestLinkPaneCountsLinks(t *testing.T) {
 	}
 }
 
-func TestBodyPaneShowsCurlHeadersAndBody(t *testing.T) {
+func TestBodyPaneShowsHeadersAndBody(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(t, "/redfish/v1/Systems/1")
 	out := screen(m)
 
-	for _, want := range []string{"curl -s -k", "-u 'admin:********'", "HTTP/1.1 200 OK", "Odata-Version: 4.0"} {
+	for _, want := range []string{"HTTP/1.1 200 OK", "Odata-Version: 4.0"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("response pane is missing %q", want)
 		}
@@ -248,6 +263,34 @@ func TestBodyPaneShowsCurlHeadersAndBody(t *testing.T) {
 
 	if !strings.Contains(out, `"@odata.id": "/redfish/v1/Systems/1"`) {
 		t.Error("response pane is missing the pretty-printed body")
+	}
+
+	// The curl command moved to the header, so the pane opens on the status.
+	if strings.Contains(lineWith(t, m, "Response ─"), "curl") {
+		t.Error("the curl command should not be in the response pane")
+	}
+}
+
+// The curl command sits on the second header line, between the path and the
+// breadcrumb, on one line so that it can be copied in a single gesture.
+func TestHeaderShowsTheCurlCommandOnOneLine(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, "/redfish/v1/Systems/1")
+	curl := strings.Split(screen(m), "\n")[1]
+
+	for _, want := range []string{"curl -s -k", "-u 'admin:********'", "-H 'Accept: application/json'"} {
+		if !strings.Contains(curl, want) {
+			t.Errorf("curl line = %q, want it to contain %q", curl, want)
+		}
+	}
+
+	if !strings.Contains(curl, "/redfish/v1/Systems/1'") {
+		t.Errorf("curl line = %q, want it to address the current resource", curl)
+	}
+
+	if strings.Contains(curl, "User-Agent") {
+		t.Errorf("curl line = %q, want no User-Agent header", curl)
 	}
 }
 
@@ -485,7 +528,7 @@ func TestBreadcrumbElidesFromTheLeft(t *testing.T) {
 	m = resize(m, 61, 20)
 
 	lines := strings.Split(screen(m), "\n")
-	breadcrumb := lines[1]
+	breadcrumb := lines[2]
 
 	// The tail is the informative end, so the head is what gives way.
 	if !strings.Contains(breadcrumb, "Metrics") {

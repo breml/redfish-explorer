@@ -18,15 +18,41 @@ const (
 	minHintWidth = 12
 )
 
-// renderHeader draws the two header lines: the current path with the service
-// metadata, and the breadcrumb trail. While the location is being edited the
-// first line becomes the editor and the second explains it.
+// renderHeader draws the three header lines: the current path with the service
+// metadata, the curl command that fetches it, and the breadcrumb trail. While
+// the location is being edited the first line becomes the editor and the third
+// explains it; the count stays at three either way, so that opening the editor
+// does not shift the panes below.
 func (m Model) renderHeader(width int) string {
 	if m.mode == ModeEdit {
-		return m.editor.View() + "\n" + m.renderEditHint(width)
+		return m.editor.View() + "\n" +
+			m.renderCurlLine(width) + "\n" +
+			m.renderEditHint(width)
 	}
 
-	return m.renderPathLine(width) + "\n" + m.renderBreadcrumb(width)
+	return m.renderPathLine(width) + "\n" +
+		m.renderCurlLine(width) + "\n" +
+		m.renderBreadcrumb(width)
+}
+
+// renderCurlLine draws the curl command for the current location. It sits
+// between the path and the breadcrumb, on one line, so that it can be selected
+// and copied in a single gesture.
+func (m Model) renderCurlLine(width int) string {
+	command := redfish.Curl(m.cfg, m.curlResource())
+
+	return m.theme.Curl.Render(ansi.Truncate(command, width, "…"))
+}
+
+// curlResource is the resource the rendered curl command addresses. On a
+// failure it is the one that failed, not the location the user is still
+// standing on: the command is there to be retried.
+func (m Model) curlResource() string {
+	if m.err != nil && m.errResource != "" {
+		return m.errResource
+	}
+
+	return m.current
 }
 
 // renderEditHint says what the editor accepts, or why the entry was refused.
