@@ -12,10 +12,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/breml/redfish-explorer/internal/cache"
 	"github.com/breml/redfish-explorer/internal/redfish"
+	"github.com/breml/redfish-explorer/internal/tui"
 )
 
 // version is replaced at build time via -ldflags "-X main.version=...".
@@ -80,73 +83,20 @@ func run(args []string, stdout io.Writer, stderr io.Writer) error {
 
 	defer client.Close()
 
-	// The terminal UI arrives with the following tasks; until then report what
-	// the service says about itself so the connection can be verified.
-	return report(context.Background(), stderr, client, cfg.resource)
-}
-
-// report describes the connected service, the request rfx would make, and the
-// links it finds at one resource.
-func report(ctx context.Context, w io.Writer, client *redfish.Client, resource string) error {
-	cfg := client.Config()
-	service := client.Service()
-
-	fmt.Fprintf(w, "connected to %s\n", cfg.Endpoint)
-	fmt.Fprintf(w, "  Redfish version: %s\n", service.RedfishVersion)
-	fmt.Fprintf(w, "  vendor:          %s\n", service.Vendor)
-	fmt.Fprintf(w, "  product:         %s\n", service.Product)
-
-	if len(service.OEMVendors) > 0 {
-		fmt.Fprintf(w, "  OEM extensions:  %s\n", strings.Join(service.OEMVendors, ", "))
-	}
-
-	fmt.Fprintf(w, "\n%s\n\n", redfish.Curl(cfg, resource))
-
-	resp, err := client.Fetch(ctx, resource)
+	// Navigation arrives with the next task; for now the UI shows one resource.
+	resp, err := client.Fetch(context.Background(), cfg.resource)
 	if err != nil {
 		return err
 	}
 
-	fmt.Fprintf(w, "%s %s (%s)\n", resp.Proto, resp.Status, resp.Duration.Round(time.Millisecond))
+	model := tui.New(client, cache.New(cfg.cacheTTL)).WithResponse(cfg.resource, resp, false)
 
-	reportLinks(w, resp)
+	_, err = tea.NewProgram(model).Run()
+	if err != nil {
+		return fmt.Errorf("running the terminal UI: %w", err)
+	}
 
 	return nil
-}
-
-// reportLinks prints the links found in a response, grouped as the link pane
-// will show them.
-func reportLinks(w io.Writer, resp *redfish.Response) {
-	groups, self, err := redfish.ExtractLinks(resp)
-	if err != nil {
-		fmt.Fprintf(w, "\n%v\n", err)
-
-		return
-	}
-
-	fmt.Fprintf(w, "self: %s\n", self)
-
-	for _, oemType := range redfish.OEMTypes(resp.Body) {
-		fmt.Fprintf(w, "OEM type: %s\n", oemType)
-	}
-
-	for _, group := range groups {
-		fmt.Fprintf(w, "\n-- %s --\n", group.Title)
-
-		for _, link := range group.Links {
-			marker := ""
-			if link.Kind == redfish.KindAction {
-				marker = " [action]"
-			}
-
-			suffix := ""
-			if link.OEM {
-				suffix = " (oem)"
-			}
-
-			fmt.Fprintf(w, "  %-34s %s%s%s\n", link.Label, link.Target, marker, suffix)
-		}
-	}
 }
 
 // clientConfig turns the resolved command line into a client configuration.

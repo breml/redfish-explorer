@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/breml/redfish-explorer/internal/redfish"
+	"github.com/breml/redfish-explorer/internal/redfishtest"
 )
 
 // connect dials the fixture server and fails the test if it cannot.
@@ -145,7 +146,7 @@ func TestFetchKeepsErrorResponses(t *testing.T) {
 		},
 		{
 			name:       "non-json body comes through untouched",
-			resource:   brokenPath,
+			resource:   redfishtest.BrokenPath,
 			wantStatus: http.StatusInternalServerError,
 			wantBody:   "<h1>Internal Server Error</h1>",
 		},
