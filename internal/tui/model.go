@@ -176,8 +176,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, cmd
 
+	case tea.PasteMsg:
+		return m.forwardToEditor(msg)
+
 	default:
-		return m, nil
+		// textinput answers ctrl+v with a message of its own, whose type it
+		// keeps unexported, so anything unrecognised has to reach it while the
+		// editor is open or the paste is lost.
+		return m.forwardToEditor(msg)
 	}
 }
 
@@ -215,6 +221,22 @@ func (m Model) WithResponse(resource string, resp *redfish.Response, fromCache b
 	m.body.GotoTop()
 
 	return m
+}
+
+// forwardToEditor hands a message to the location editor, when there is one
+// open to receive it. Outside edit mode nothing else on the screen takes input,
+// so the message is simply dropped.
+func (m Model) forwardToEditor(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.mode != ModeEdit {
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+
+	m.editor, cmd = m.editor.Update(msg)
+	m.editErr = ""
+
+	return m, cmd
 }
 
 // cursorPosition puts the terminal cursor in the location editor while it is
@@ -268,12 +290,7 @@ func (m Model) handleEditKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.submitEditedLocation()
 
 	default:
-		var cmd tea.Cmd
-
-		m.editor, cmd = m.editor.Update(msg)
-		m.editErr = ""
-
-		return m, cmd
+		return m.forwardToEditor(msg)
 	}
 }
 

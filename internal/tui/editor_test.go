@@ -31,6 +31,16 @@ func typeText(t *testing.T, m tui.Model, s string) tui.Model {
 	return m
 }
 
+// paste delivers s the way a terminal delivers a paste: one message carrying
+// the whole text, not a key press per character.
+func paste(t *testing.T, m tui.Model, s string) tui.Model {
+	t.Helper()
+
+	updated, cmd := m.Update(tea.PasteMsg{Content: s})
+
+	return drive(t, asModel(updated), cmd)
+}
+
 // clearEditor removes whatever the editor holds.
 func clearEditor(t *testing.T, m tui.Model, length int) tui.Model {
 	t.Helper()
@@ -132,7 +142,7 @@ func TestEditorLoadsATypedPath(t *testing.T) {
 	}
 }
 
-func TestEditorAcceptsAPastedURLForTheConnectedHost(t *testing.T) {
+func TestEditorAcceptsATypedURLForTheConnectedHost(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(t, redfish.RootPath)
@@ -144,12 +154,48 @@ func TestEditorAcceptsAPastedURLForTheConnectedHost(t *testing.T) {
 	m = pressCode(t, m, keyEnter)
 
 	if !strings.Contains(pathLine(m), "/redfish/v1/Chassis") {
-		t.Fatalf("header = %q, want the pasted URL reduced to its path", pathLine(m))
+		t.Fatalf("header = %q, want the URL reduced to its path", pathLine(m))
 	}
 
 	// The scheme and host are stripped, not carried into the location.
 	if strings.Contains(pathLine(m), "https://") {
 		t.Errorf("header = %q, want no scheme in the location", pathLine(m))
+	}
+}
+
+// A terminal paste arrives as one message rather than as key presses, so it
+// reaches the editor by a different route than typing does.
+func TestEditorAcceptsATerminalPaste(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, redfish.RootPath)
+	endpoint := m.Endpoint()
+
+	m = openEditor(t, m)
+	m = clearEditor(t, m, len(redfish.RootPath))
+	m = paste(t, m, endpoint+"/redfish/v1/Chassis")
+
+	if !strings.Contains(pathLine(m), endpoint+"/redfish/v1/Chassis") {
+		t.Fatalf("editor = %q, want the pasted URL in it", pathLine(m))
+	}
+
+	m = pressCode(t, m, keyEnter)
+
+	if !strings.Contains(pathLine(m), "/redfish/v1/Chassis") {
+		t.Errorf("header = %q, want the pasted URL loaded", pathLine(m))
+	}
+}
+
+// Pasting into a location already being edited inserts at the cursor rather
+// than replacing what is there, so a path can be assembled from both.
+func TestPasteInsertsIntoWhatIsAlreadyTyped(t *testing.T) {
+	t.Parallel()
+
+	m := openEditor(t, newModel(t, redfish.RootPath))
+	m = paste(t, m, "/Systems")
+
+	if !strings.Contains(pathLine(m), redfish.RootPath+"/Systems") {
+		t.Errorf("editor = %q, want the paste appended to the prefilled path", pathLine(m))
 	}
 }
 

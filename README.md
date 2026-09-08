@@ -157,6 +157,11 @@ a browser is accepted and reduced to its path; one naming a different host is
 refused. A path that turns out not to exist simply renders its 404 — probing for
 undocumented endpoints is a first-class use.
 
+Pasting works both ways round: the terminal's own paste (bracketed paste, which
+is what `ctrl+shift+v`, `cmd+v` or a middle click send) needs nothing, while
+`ctrl+v` reads the system clipboard directly and on Linux wants `xclip`, `xsel`
+or `wl-copy` installed.
+
 Responses are cached for `--cache-ttl` (5 minutes by default), so walking back up
 the tree is instant. The header says `cached 12s ago` whenever a view is not
 live, and `r` forces a fresh request.
