@@ -12,11 +12,17 @@ type keyMap struct {
 	Tab      key.Binding
 	Location key.Binding
 	Reload   key.Binding
+	Copy     key.Binding
 	PageUp   key.Binding
 	PageDown key.Binding
 	Cancel   key.Binding
 	Help     key.Binding
 	Quit     key.Binding
+	// Paste is ctrl+v in the location editor. It is bound here rather than
+	// left to the text input, because the input keeps a failed read in a field
+	// of its own that nothing on the screen renders: a machine with no
+	// clipboard tool would paste nothing and say nothing.
+	Paste key.Binding
 	// Interrupt is ctrl+c on its own. It is bound apart from Quit because the
 	// location editor has to keep it while suspending every other binding: "q"
 	// is text there, and Bubble Tea leaves ctrl+c to the program in raw mode.
@@ -39,8 +45,8 @@ func newKeyMap() keyMap {
 			key.WithHelp("enter", "follow"),
 		),
 		Back: key.NewBinding(
-			key.WithKeys("backspace"),
-			key.WithHelp("backspace", "up one level"),
+			key.WithKeys("backspace", "left"),
+			key.WithHelp("←/backspace", "back"),
 		),
 		Tab: key.NewBinding(
 			key.WithKeys("tab"),
@@ -53,6 +59,10 @@ func newKeyMap() keyMap {
 		Reload: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "reload"),
+		),
+		Copy: key.NewBinding(
+			key.WithKeys("y"),
+			key.WithHelp("y", "copy"),
 		),
 		PageUp: key.NewBinding(
 			key.WithKeys("pgup"),
@@ -78,12 +88,16 @@ func newKeyMap() keyMap {
 			key.WithKeys("ctrl+c"),
 			key.WithHelp("ctrl+c", "quit"),
 		),
+		Paste: key.NewBinding(
+			key.WithKeys("ctrl+v"),
+			key.WithHelp("ctrl+v", "paste"),
+		),
 	}
 }
 
 // ShortHelp returns the bindings shown on the footer line.
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Tab, k.Enter, k.Back, k.Location, k.Reload, k.Help, k.Quit}
+	return []key.Binding{k.Tab, k.Enter, k.Back, k.Location, k.Reload, k.Copy, k.Help, k.Quit}
 }
 
 // FullHelp returns every binding, grouped into columns for the help overlay.
@@ -91,6 +105,6 @@ func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Enter, k.Back},
 		{k.Tab, k.PageUp, k.PageDown},
-		{k.Location, k.Reload, k.Help, k.Quit},
+		{k.Location, k.Reload, k.Copy, k.Help, k.Quit},
 	}
 }

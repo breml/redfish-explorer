@@ -1,6 +1,9 @@
 package tui_test
 
 import (
+	"errors"
+	"fmt"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +36,16 @@ func newModel(t *testing.T, resource string) tui.Model {
 func newModelWithCache(t *testing.T, resource string, store *cache.Cache) tui.Model {
 	t.Helper()
 
+	m, _ := newModelWithServer(t, resource, store)
+
+	return m
+}
+
+// newModelWithServer is newModelWithCache, handing back the fixture service so
+// that a test can take it away and exercise a failure to reach it.
+func newModelWithServer(t *testing.T, resource string, store *cache.Cache) (tui.Model, *httptest.Server) {
+	t.Helper()
+
 	server := redfishtest.NewServer()
 	t.Cleanup(server.Close)
 
@@ -46,7 +59,7 @@ func newModelWithCache(t *testing.T, resource string, store *cache.Cache) tui.Mo
 	m := tui.New(client, store, resource)
 	m = resize(m, termWidth, termHeight)
 
-	return drive(t, m, m.Init())
+	return drive(t, m, m.Init()), server
 }
 
 // drive runs a command and feeds every message it produces back through Update,
@@ -129,6 +142,14 @@ func styled(m tui.Model) string {
 	return m.View().Content
 }
 
+// footerLine returns the last rendered line, which carries the notice and the
+// key hints.
+func footerLine(m tui.Model) string {
+	lines := strings.Split(screen(m), "\n")
+
+	return lines[len(lines)-1]
+}
+
 // lineWith returns the first rendered line containing want.
 func lineWith(t *testing.T, m tui.Model, want string) string {
 	t.Helper()
@@ -158,8 +179,8 @@ func TestHeaderShowsPathAndBreadcrumb(t *testing.T) {
 	m := newModel(t, "/redfish/v1/Systems/1")
 
 	lines := strings.Split(screen(m), "\n")
-	if len(lines) < 2 {
-		t.Fatalf("screen has %d lines, want at least 2", len(lines))
+	if len(lines) < 3 {
+		t.Fatalf("screen has %d lines, want at least 3", len(lines))
 	}
 
 	if !strings.Contains(lines[0], "/redfish/v1/Systems/1") {
@@ -170,8 +191,12 @@ func TestHeaderShowsPathAndBreadcrumb(t *testing.T) {
 		t.Errorf("first line = %q, want the Redfish version", lines[0])
 	}
 
-	if !strings.Contains(lines[1], "root > Systems > 1") {
-		t.Errorf("second line = %q, want the breadcrumb", lines[1])
+	if !strings.Contains(lines[1], "curl -s") {
+		t.Errorf("second line = %q, want the curl command", lines[1])
+	}
+
+	if !strings.Contains(lines[2], "root > Systems > 1") {
+		t.Errorf("third line = %q, want the breadcrumb", lines[2])
 	}
 }
 
@@ -234,13 +259,13 @@ func TestLinkPaneCountsLinks(t *testing.T) {
 	}
 }
 
-func TestBodyPaneShowsCurlHeadersAndBody(t *testing.T) {
+func TestBodyPaneShowsHeadersAndBody(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(t, "/redfish/v1/Systems/1")
 	out := screen(m)
 
-	for _, want := range []string{"curl -s -k", "-u 'admin:********'", "HTTP/1.1 200 OK", "Odata-Version: 4.0"} {
+	for _, want := range []string{"HTTP/1.1 200 OK", "Odata-Version: 4.0"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("response pane is missing %q", want)
 		}
@@ -249,6 +274,140 @@ func TestBodyPaneShowsCurlHeadersAndBody(t *testing.T) {
 	if !strings.Contains(out, `"@odata.id": "/redfish/v1/Systems/1"`) {
 		t.Error("response pane is missing the pretty-printed body")
 	}
+
+	// The curl command moved to the header, so the pane opens on the status.
+	if strings.Contains(lineWith(t, m, "Response ─"), "curl") {
+		t.Error("the curl command should not be in the response pane")
+	}
+}
+
+// The curl command sits on the second header line, between the path and the
+// breadcrumb, on one line so that it can be copied in a single gesture.
+func TestHeaderShowsTheCurlCommandOnOneLine(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, "/redfish/v1/Systems/1")
+	curl := strings.Split(screen(m), "\n")[1]
+
+	for _, want := range []string{"curl -s -k", "-u 'admin:********'", "-H 'Accept: application/json'"} {
+		if !strings.Contains(curl, want) {
+			t.Errorf("curl line = %q, want it to contain %q", curl, want)
+		}
+	}
+
+	if !strings.Contains(curl, "/redfish/v1/Systems/1'") {
+		t.Errorf("curl line = %q, want it to address the current resource", curl)
+	}
+
+	if strings.Contains(curl, "User-Agent") {
+		t.Errorf("curl line = %q, want no User-Agent header", curl)
+	}
+}
+
+// Copying is the point of the single-line curl command: what goes out has to be
+// exactly what the header shows.
+func TestCopyPutsTheCurlCommandOnTheClipboard(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, "/redfish/v1/Systems/1")
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	if cmd == nil {
+		t.Fatal("y produced no command, want the clipboard to be set")
+	}
+
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("y produced %T, want a batch of both copy mechanisms", cmd())
+	}
+
+	if len(batch) != 2 {
+		t.Errorf("batch has %d commands, want OSC 52 and the local clipboard", len(batch))
+	}
+
+	// SetClipboard carries the text in an unexported message whose underlying
+	// type is a string, so the value is readable even if the type is not.
+	want := strings.TrimSpace(strings.Split(screen(m), "\n")[1])
+
+	var found bool
+
+	for _, c := range batch {
+		if fmt.Sprint(c()) == want {
+			found = true
+		}
+	}
+
+	if !found {
+		t.Errorf("nothing in the batch copied %q", want)
+	}
+
+	if !strings.Contains(want, "/redfish/v1/Systems/1'") {
+		t.Errorf("curl line = %q, want the current resource", want)
+	}
+
+	if strings.Contains(want, "User-Agent") {
+		t.Errorf("curl line = %q, want no User-Agent header", want)
+	}
+}
+
+// A copy that got no further than OSC 52 cannot be confirmed, and must not be
+// announced as done: a terminal that drops the sequence says nothing back.
+//
+// These tests set the SSH variables rather than reading whatever the machine
+// running them happens to have, because they decide how a copy is described.
+// That rules out t.Parallel.
+func TestCopyReportsOnlyWhatItCanConfirm(t *testing.T) {
+	runningLocally(t)
+
+	m := newModel(t, "/redfish/v1/Systems/1")
+
+	confirmed, _ := m.Update(tui.CopyResultMsg(nil))
+	if !strings.Contains(screen(asModel(confirmed)), "copied to the clipboard") {
+		t.Errorf("want the copy confirmed, footer:\n%s", footerLine(asModel(confirmed)))
+	}
+
+	blind, _ := m.Update(tui.CopyResultMsg(errors.New("no clipboard utilities available")))
+	if !strings.Contains(screen(asModel(blind)), "OSC 52") {
+		t.Errorf("want an unconfirmed copy to say so, footer:\n%s", footerLine(asModel(blind)))
+	}
+}
+
+// Which of the two routes failed is not the only thing worth knowing: a missing
+// clipboard tool and a session with nowhere to put a selection are different
+// problems, and only the error says which one this is.
+func TestAFailedCopySaysWhyTheLocalOneDidNotWork(t *testing.T) {
+	runningLocally(t)
+
+	m := newModel(t, "/redfish/v1/Systems/1")
+
+	blind, _ := m.Update(tui.CopyResultMsg(errors.New("no clipboard utilities available")))
+	if !strings.Contains(screen(asModel(blind)), "no clipboard utilities available") {
+		t.Errorf("want the reason the local clipboard failed, footer:\n%s", footerLine(asModel(blind)))
+	}
+}
+
+// Over SSH the local clipboard is the far end's, so a write to it says nothing
+// about where the user is sitting: only OSC 52 can get there, and it cannot be
+// confirmed.
+func TestCopyDoesNotClaimTheClipboardOverSSH(t *testing.T) {
+	t.Setenv("SSH_CONNECTION", "192.0.2.2 51000 192.0.2.1 22")
+	t.Setenv("SSH_TTY", "/dev/pts/0")
+
+	m := newModel(t, "/redfish/v1/Systems/1")
+
+	copied, _ := m.Update(tui.CopyResultMsg(nil))
+	if !strings.Contains(screen(asModel(copied)), "OSC 52") {
+		t.Errorf("want the copy described as unconfirmed, footer:\n%s", footerLine(asModel(copied)))
+	}
+}
+
+// runningLocally puts the model on a machine the user is sitting at, whatever
+// the machine running the tests is.
+func runningLocally(t *testing.T) {
+	t.Helper()
+
+	t.Setenv("SSH_CONNECTION", "")
+	t.Setenv("SSH_TTY", "")
 }
 
 func TestCursorMovesAndSkipsGroupHeaders(t *testing.T) {
@@ -284,7 +443,7 @@ func TestCursorStopsAtTheEnds(t *testing.T) {
 		m = press(t, m, "j")
 	}
 
-	if !strings.Contains(lineWith(t, m, "SmartStorageUri"), "▸") {
+	if !strings.Contains(lineWith(t, m, "Thermal"), "▸") {
 		t.Errorf("cursor should stop on the last link, screen:\n%s", screen(m))
 	}
 }
@@ -408,7 +567,7 @@ func TestNonJSONBody(t *testing.T) {
 	}
 }
 
-func TestHelpOverlay(t *testing.T) {
+func TestHelpPanel(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(t, "/redfish/v1/Systems/1")
@@ -417,29 +576,56 @@ func TestHelpOverlay(t *testing.T) {
 	m = press(t, m, "?")
 	help := screen(m)
 
-	if !strings.Contains(help, "rfx — keys") {
-		t.Fatalf("want the help overlay, got:\n%s", help)
+	if !strings.Contains(help, "Help ─") {
+		t.Fatalf("want the help panel, got:\n%s", help)
 	}
 
-	for _, want := range []string{"location", "reload", "up one level", "(oem)"} {
+	for _, want := range []string{"location", "reload", "copy", "back", "(oem)"} {
 		if !strings.Contains(help, want) {
-			t.Errorf("help overlay is missing %q", want)
+			t.Errorf("help panel is missing %q", want)
 		}
-	}
-
-	// It covers the screen rather than sitting beside the panes.
-	if strings.Contains(help, "curl -s") {
-		t.Error("the overlay should cover the response pane")
 	}
 
 	m = press(t, m, "?")
 
 	if screen(m) != before {
-		t.Error("? should toggle the overlay off again")
+		t.Error("? should toggle the panel off again")
 	}
 }
 
-func TestAnyKeyClosesTheHelpOverlay(t *testing.T) {
+// The panel takes the place of the two panes only. Everything framing them
+// stays put, so the user does not lose their bearings while reading it.
+func TestHelpPanelKeepsTheHeaderAndFooter(t *testing.T) {
+	t.Parallel()
+
+	m := press(t, newModel(t, "/redfish/v1/Systems/1"), "?")
+	lines := strings.Split(screen(m), "\n")
+
+	if !strings.Contains(lines[0], "/redfish/v1/Systems/1") {
+		t.Errorf("first line = %q, want the location kept", lines[0])
+	}
+
+	if !strings.Contains(lines[1], "curl -s") {
+		t.Errorf("second line = %q, want the curl command kept", lines[1])
+	}
+
+	if !strings.Contains(lines[2], "root > Systems > 1") {
+		t.Errorf("third line = %q, want the breadcrumb kept", lines[2])
+	}
+
+	if !strings.Contains(footerLine(m), "q quit") {
+		t.Errorf("footer = %q, want the key hints kept", footerLine(m))
+	}
+
+	// The panes themselves are gone: one panel spans the width.
+	for _, gone := range []string{"Links (", "Response ─"} {
+		if strings.Contains(screen(m), gone) {
+			t.Errorf("want the %q pane replaced by the help panel", gone)
+		}
+	}
+}
+
+func TestAnyKeyClosesTheHelpPanel(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(t, "/redfish/v1/Systems/1")
@@ -485,7 +671,7 @@ func TestBreadcrumbElidesFromTheLeft(t *testing.T) {
 	m = resize(m, 61, 20)
 
 	lines := strings.Split(screen(m), "\n")
-	breadcrumb := lines[1]
+	breadcrumb := lines[2]
 
 	// The tail is the informative end, so the head is what gives way.
 	if !strings.Contains(breadcrumb, "Metrics") {
@@ -497,7 +683,7 @@ func TestBreadcrumbElidesFromTheLeft(t *testing.T) {
 	}
 }
 
-func TestHelpOverlayStaysInsideTheTerminal(t *testing.T) {
+func TestHelpPanelStaysInsideTheTerminal(t *testing.T) {
 	t.Parallel()
 
 	m := press(t, newModel(t, "/redfish/v1/Systems/1"), "?")
@@ -516,25 +702,25 @@ func TestHelpOverlayStaysInsideTheTerminal(t *testing.T) {
 		m = resize(m, size.width, size.height)
 		out := styled(m)
 
-		if !strings.Contains(screen(m), "rfx — keys") {
-			t.Fatalf("at %dx%d the overlay is not showing:\n%s", size.width, size.height, screen(m))
+		if !strings.Contains(screen(m), "Help ─") {
+			t.Fatalf("at %dx%d the panel is not showing:\n%s", size.width, size.height, screen(m))
 		}
 
 		lines := strings.Split(out, "\n")
 		if len(lines) > size.height {
-			t.Errorf("at %dx%d the overlay is %d lines tall", size.width, size.height, len(lines))
+			t.Errorf("at %dx%d the help screen is %d lines tall", size.width, size.height, len(lines))
 		}
 
 		for i, line := range lines {
 			if width := lineWidth(line); width > size.width {
-				t.Errorf("at %dx%d overlay line %d is %d columns wide", size.width, size.height, i, width)
+				t.Errorf("at %dx%d line %d is %d columns wide", size.width, size.height, i, width)
 			}
 		}
 
 		// The notes wrap rather than being cut off, so their tail survives even
 		// on the narrowest supported terminal.
 		if !strings.Contains(screen(m), "ActionInfo") {
-			t.Errorf("at %dx%d the overlay lost the end of its notes:\n%s", size.width, size.height, screen(m))
+			t.Errorf("at %dx%d the panel lost the end of its notes:\n%s", size.width, size.height, screen(m))
 		}
 	}
 }

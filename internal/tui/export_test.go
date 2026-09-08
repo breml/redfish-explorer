@@ -6,6 +6,20 @@ func StaleFetchedMsg(resource string) any {
 	return fetchedMsg{resource: resource, response: nil}
 }
 
+// CopyResultMsg builds the message a finished copy reports, so that both
+// outcomes can be exercised without depending on whether the machine running
+// the tests has a clipboard tool installed.
+func CopyResultMsg(err error) any {
+	return copiedMsg{err: err}
+}
+
+// PasteResultMsg builds the message a clipboard read reports, so that both
+// outcomes can be exercised without depending on whether the machine running
+// the tests has a clipboard tool installed.
+func PasteResultMsg(text string, err error) any {
+	return pastedMsg{text: text, err: err}
+}
+
 // Endpoint returns the connected endpoint. It exists for tests only.
 func (m Model) Endpoint() string {
 	return m.cfg.Endpoint

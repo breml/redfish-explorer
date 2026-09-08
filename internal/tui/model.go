@@ -39,8 +39,9 @@ const (
 
 // Layout constants.
 const (
-	// headerHeight covers the path line, the breadcrumb and the rule below them.
-	headerHeight = 3
+	// headerHeight covers the path line, the curl command, the breadcrumb and
+	// the rule below them.
+	headerHeight = 4
 	// footerHeight covers the single footer line.
 	footerHeight = 1
 	// frameWidth and frameHeight are what a pane border costs.
@@ -75,6 +76,9 @@ type Model struct {
 	cursor    int
 	fromCache bool
 
+	// history is the trail of places a forward navigation has left behind.
+	history []visit
+
 	body    viewport.Model
 	editor  textinput.Model
 	spinner spinner.Model
@@ -82,7 +86,12 @@ type Model struct {
 
 	// pending is the resource currently being fetched, if any.
 	pending string
-	loading bool
+	// pendingNav says what the pending fetch does to the history when it lands.
+	pendingNav navKind
+	// pendingCursor is the row the pending fetch should land on, or noCursor to
+	// start at the top of the link pane.
+	pendingCursor int
+	loading       bool
 
 	// err is a failure to fetch: it replaces the response pane.
 	err error
@@ -113,12 +122,14 @@ func New(client *redfish.Client, store *cache.Cache, resource string) Model {
 		current: resource,
 		// Init fetches this straight away, so the guard in handleFetched has
 		// to know about it from the start.
-		pending: resource,
-		loading: true,
-		body:    viewport.New(),
-		editor:  newEditor(),
-		spinner: spinner.New(),
-		help:    help.New(),
+		pending:       resource,
+		pendingNav:    navStay,
+		pendingCursor: noCursor,
+		loading:       true,
+		body:          viewport.New(),
+		editor:        newEditor(),
+		spinner:       spinner.New(),
+		help:          help.New(),
 	}
 
 	m.rows = buildRows(nil, true)
@@ -155,6 +166,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case fetchedMsg:
 		return m.handleFetched(msg), nil
 
+	case copiedMsg:
+		return m.handleCopied(msg), nil
+
+	case pastedMsg:
+		return m.handlePasted(msg)
+
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 
@@ -162,7 +179,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, cmd
 
+	case tea.PasteMsg:
+		return m.forwardToEditor(msg)
+
 	default:
+		// Nothing else on the screen takes input. The text input has a paste
+		// of its own that would arrive here, but rfx binds ctrl+v itself
+		// rather than let a failed read go unreported.
 		return m, nil
 	}
 }
@@ -179,6 +202,18 @@ func (m Model) View() tea.View {
 // WithResponse returns the model showing a response. It is a value method
 // because Bubble Tea threads the model by value through Update.
 func (m Model) WithResponse(resource string, resp *redfish.Response, fromCache bool) Model {
+	// The location editor can resolve to the resource already on screen, which
+	// is not a step and must not become one to go back through.
+	if m.pendingNav == navForward && resource != m.current {
+		m = m.pushVisit(m.current, m.cursor)
+	}
+
+	// A step back leaves the trail only once it has actually landed on the
+	// place it was heading for. navStay is neither, and touches nothing.
+	if m.pendingNav == navBack {
+		m = m.dropVisit()
+	}
+
 	m.current = resource
 	m.resp = resp
 	m.fromCache = fromCache
@@ -191,12 +226,46 @@ func (m Model) WithResponse(resource string, resp *redfish.Response, fromCache b
 	m.linkErr = err
 
 	m.rows = buildRows(groups, resource == redfish.RootPath)
-	m.cursor = m.firstSelectable()
+	m.cursor = m.restoreCursor()
 
 	m.body.SetContent(m.renderBody())
 	m.body.GotoTop()
 
 	return m
+}
+
+// forwardToEditor hands the location editor something that changes what is
+// typed, which also retires a refusal: the entry is being corrected, so the
+// hint has done its work. Outside edit mode nothing else on the screen takes
+// input, so the message is simply dropped.
+func (m Model) forwardToEditor(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.mode != ModeEdit {
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+
+	m.editor, cmd = m.editor.Update(msg)
+	m.editErr = ""
+
+	return m, cmd
+}
+
+// handlePasted puts what the clipboard held into the editor, or says why
+// nothing arrived. It travels the same route as a terminal paste, so that both
+// insert at the cursor and lose their newlines the same way.
+func (m Model) handlePasted(msg pastedMsg) (tea.Model, tea.Cmd) {
+	if m.mode != ModeEdit {
+		return m, nil
+	}
+
+	if msg.err != nil {
+		m.editErr = msg.err.Error()
+
+		return m, nil
+	}
+
+	return m.forwardToEditor(tea.PasteMsg{Content: msg.text})
 }
 
 // cursorPosition puts the terminal cursor in the location editor while it is
@@ -220,7 +289,7 @@ func (m Model) handleResize(msg tea.WindowSizeMsg) Model {
 	m.body.SetHeight(max(m.paneContentHeight()-1, 1))
 	m.body.SetContent(m.renderBody())
 	m.editor.SetWidth(max(m.width-frameWidth, 1))
-	m.help.SetWidth(m.width)
+	m.help.SetWidth(max(m.width-frameWidth, 1))
 
 	return m
 }
@@ -249,13 +318,13 @@ func (m Model) handleEditKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Enter):
 		return m.submitEditedLocation()
 
+	// The text input has a ctrl+v of its own; rfx reads the clipboard itself
+	// so that a machine without the tools to do it says so.
+	case key.Matches(msg, m.keys.Paste):
+		return m, pasteCmd()
+
 	default:
-		var cmd tea.Cmd
-
-		m.editor, cmd = m.editor.Update(msg)
-		m.editErr = ""
-
-		return m, cmd
+		return m.forwardToEditor(msg)
 	}
 }
 
@@ -290,7 +359,7 @@ func (m Model) submitEditedLocation() (tea.Model, tea.Cmd) {
 
 	// A path that turns out not to exist is a normal outcome, not an error:
 	// probing for undocumented endpoints is what this is for.
-	return m.stopEditing().startFetch(resource, useCache)
+	return m.stopEditing().startFetch(resource, useCache, navForward, noCursor)
 }
 
 // editedResource turns what was typed into a resource on the connected
@@ -354,10 +423,13 @@ func (m Model) handleNavigationKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.follow()
 
 	case key.Matches(msg, m.keys.Back):
-		return m.goUp()
+		return m.goBack()
 
 	case key.Matches(msg, m.keys.Reload):
-		return m.startFetch(m.current, skipCache)
+		return m.startFetch(m.current, skipCache, navStay, m.cursor)
+
+	case key.Matches(msg, m.keys.Copy):
+		return m.copyCurl()
 
 	case key.Matches(msg, m.keys.Location):
 		return m.startEditing()
@@ -382,7 +454,7 @@ func (m Model) follow() (tea.Model, tea.Cmd) {
 		return m.followAction(r.link)
 	}
 
-	return m.startFetch(r.link.Target, useCache)
+	return m.startFetch(r.link.Target, useCache, navForward, noCursor)
 }
 
 // followAction opens an action's ActionInfo, which is the only part of an
@@ -390,12 +462,28 @@ func (m Model) follow() (tea.Model, tea.Cmd) {
 // that vendor actions can be discovered at all.
 func (m Model) followAction(link redfish.Link) (tea.Model, tea.Cmd) {
 	if link.ActionInfo != "" {
-		return m.startFetch(link.ActionInfo, useCache)
+		return m.startFetch(link.ActionInfo, useCache, navForward, noCursor)
 	}
 
 	m.notice = "POST target — not retrievable; write support planned"
 
 	return m, nil
+}
+
+// copyCurl puts the curl command for the current location on the clipboard.
+//
+// Both mechanisms are used, because neither covers every case. OSC 52 travels
+// down an SSH connection, which is how a BMC is usually reached, but a great
+// many terminals refuse to act on it — VTE-based ones never have, and tmux and
+// xterm need it turned on. The local clipboard tools always work, but only on
+// the machine rfx itself runs on. What lands is the same either way, and the
+// footer reports which of the two could actually be confirmed.
+func (m Model) copyCurl() (tea.Model, tea.Cmd) {
+	// What is copied is exactly what the header shows, password masking
+	// included: --show-password governs both.
+	command := redfish.Curl(m.cfg, m.curlResource())
+
+	return m, tea.Batch(tea.SetClipboard(command), copyCmd(command))
 }
 
 // goUp walks one level towards the service root.
@@ -405,7 +493,22 @@ func (m Model) goUp() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	return m.startFetch(parent, useCache)
+	return m.startFetch(parent, useCache, navForward, noCursor)
+}
+
+// goBack returns to the place the last forward navigation left. With nothing
+// to go back to it does nothing, as goUp does at the service root.
+//
+// The visit stays on the trail until the fetch lands, so that a step back which
+// never arrives — an unreachable service, a late answer for somewhere the user
+// has since left — does not consume the place it was heading for.
+func (m Model) goBack() (tea.Model, tea.Cmd) {
+	previous, ok := m.lastVisit()
+	if !ok {
+		return m, nil
+	}
+
+	return m.startFetch(previous.resource, useCache, navBack, previous.cursor)
 }
 
 // moveUp moves the cursor or scrolls the response pane, by which pane has focus.
@@ -458,6 +561,22 @@ func (m Model) otherFocus() Focus {
 	return FocusLinks
 }
 
+// restoreCursor places the cursor for a response that has just landed. A
+// remembered row is only honoured when the new row set still has one there to
+// rest on: a resource can have changed between two visits, and the row a stale
+// index points at would be the wrong one.
+func (m Model) restoreCursor() int {
+	if m.pendingCursor < 0 || m.pendingCursor >= len(m.rows) {
+		return m.firstSelectable()
+	}
+
+	if !m.rows[m.pendingCursor].selectable() {
+		return m.firstSelectable()
+	}
+
+	return m.pendingCursor
+}
+
 // firstSelectable returns the index of the first row the cursor may rest on.
 func (m Model) firstSelectable() int {
 	for i, r := range m.rows {
@@ -506,57 +625,66 @@ func (m Model) render() string {
 			itoa(minWidth) + "x" + itoa(minHeight)
 	}
 
+	middle := lipgloss.JoinHorizontal(lipgloss.Top, m.renderLinks(), m.renderResponse())
 	if m.showHelp {
-		return m.renderHelp()
+		middle = m.renderHelpPane()
 	}
-
-	panes := lipgloss.JoinHorizontal(lipgloss.Top, m.renderLinks(), m.renderResponse())
 
 	return strings.Join([]string{
 		m.renderHeader(m.width),
 		m.theme.Dim.Render(strings.Repeat("─", m.width)),
-		panes,
+		middle,
 		m.renderFooter(m.width),
 	}, "\n")
 }
 
-// renderHelp covers the screen with every binding. Unlike the panes it is not
-// framed by pane, so it has to keep itself inside the terminal on its own.
-func (m Model) renderHelp() string {
-	lines := fit(m.helpLines(), m.height)
+// renderHelpPane draws every binding in one panel across the width of both
+// panes. It takes their place rather than the whole screen, so that the
+// location, the curl command and the key hints stay where they were.
+func (m Model) renderHelpPane() string {
+	inner := m.width - frameWidth
 
-	for i, line := range lines {
-		lines[i] = ansi.Truncate(line, m.width, "…")
-	}
-
-	return strings.Join(lines, "\n")
+	// The title takes the first of the pane's content lines.
+	return m.pane(m.theme.PaneFocused, m.width,
+		m.paneTitleLine("Help", inner),
+		strings.Join(m.helpLines(inner, m.paneContentHeight()-1), "\n"))
 }
 
-// helpLines is the content of the overlay, one terminal line per entry. The
-// key columns arrive as several lines in one string and the notes are longer
-// than a narrow terminal, so both are broken up here: fit counts lines, and
-// would otherwise pad a block that already overflows.
-func (m Model) helpLines() []string {
-	lines := []string{m.theme.Path.Render("rfx — keys"), ""}
+// helpLines is the content of the panel, one terminal line per entry. The key
+// columns arrive as several lines in one string and a note can be longer than a
+// narrow terminal, so both are broken up here: pane counts lines, and would
+// otherwise pad a block that already overflows.
+//
+// How to leave the panel is said in the footer, where the key hints live
+// anyway, so that the panel spends every line it has on content. The blank
+// between the columns and the notes goes the same way when height is short: the
+// notes are content, the spacer is only comfort.
+func (m Model) helpLines(width int, height int) []string {
+	lines := strings.Split(m.help.FullHelpView(m.keys.FullHelp()), "\n")
 
-	lines = append(lines, strings.Split(m.help.FullHelpView(m.keys.FullHelp()), "\n")...)
-	lines = append(lines, "")
+	var notes []string
 
 	for _, note := range helpNotes() {
-		for wrapped := range strings.SplitSeq(ansi.Wrap(note, m.width, ""), "\n") {
-			lines = append(lines, m.theme.Dim.Render(wrapped))
+		for wrapped := range strings.SplitSeq(ansi.Wrap(note, width, ""), "\n") {
+			notes = append(notes, m.theme.Dim.Render(wrapped))
 		}
 	}
 
-	return append(lines, "", m.theme.Hint.Render("any key to close"))
+	if len(lines)+len(notes) < height {
+		lines = append(lines, "")
+	}
+
+	return append(lines, notes...)
 }
 
-// helpNotes explains the link pane markers, below the key columns.
+// helpNotes explains the link pane markers, below the key columns. They are
+// kept short on purpose: at the smallest supported terminal the panel has only
+// just enough room for the key columns and these two lines, and help that
+// silently loses its tail is worse than help that is terse.
 func helpNotes() []string {
 	return []string{
-		"Link pane: (oem) marks a vendor extension, " + actionMarker +
-			" marks a POST-only action target.",
-		"Actions are listed so they can be found; following one opens its ActionInfo.",
+		"(oem) = vendor extension, " + actionMarker + " = POST-only action target.",
+		"Following an action opens its ActionInfo.",
 	}
 }
 
@@ -565,7 +693,7 @@ func (m Model) renderLinks() string {
 	inner := m.linkWidth() - frameWidth
 	height := m.paneContentHeight()
 
-	return m.pane(FocusLinks, m.linkWidth(),
+	return m.pane(m.paneStyle(FocusLinks), m.linkWidth(),
 		m.paneTitleLine(m.linkPaneTitle(), inner), m.renderLinkPane(inner, height-1))
 }
 
@@ -573,14 +701,18 @@ func (m Model) renderLinks() string {
 func (m Model) renderResponse() string {
 	inner := m.bodyWidth() - frameWidth
 
-	return m.pane(FocusBody, m.bodyWidth(), m.paneTitleLine("Response", inner), m.body.View())
+	return m.pane(m.paneStyle(FocusBody), m.bodyWidth(),
+		m.paneTitleLine("Response", inner), m.body.View())
 }
 
 // pane frames a title and a body. Both dimensions passed to lipgloss are the
 // outer ones — Style.Width and Style.Height include the border — and the
-// content is cut to exactly the room inside it, so the two panes always agree
-// and the screen never outgrows the terminal.
-func (m Model) pane(focus Focus, outerWidth int, title string, body string) string {
+// content is cut to exactly the room inside it, so the panes always agree and
+// the screen never outgrows the terminal.
+//
+// The frame arrives as a style rather than as a Focus, because the help panel
+// is framed too and has no place in a two-valued focus.
+func (m Model) pane(frame lipgloss.Style, outerWidth int, title string, body string) string {
 	inner := outerWidth - frameWidth
 
 	lines := append([]string{title}, strings.Split(body, "\n")...)
@@ -590,7 +722,7 @@ func (m Model) pane(focus Focus, outerWidth int, title string, body string) stri
 		lines[i] = ansi.Truncate(line, inner, "…")
 	}
 
-	return m.paneStyle(focus).
+	return frame.
 		Width(outerWidth).
 		Height(m.paneHeight()).
 		Render(strings.Join(lines, "\n"))

@@ -8,8 +8,12 @@ import (
 const maskedPassword = "********"
 
 // Curl renders the curl command equivalent to the request rfx makes for
-// resource. The flags appear in the order the request actually sets them, so
-// the command can be pasted into a shell and reproduce the exchange.
+// resource. It is one line so that it can be selected and copied in a single
+// gesture, which is what it is for: pasting into a bug report or a script.
+//
+// The User-Agent rfx sets on the real request (see Client.Fetch) is left out.
+// curl sends its own, the header plays no part in what a service answers, and
+// carrying it would only make the command harder to read and to copy.
 func Curl(cfg Config, resource string) string {
 	var b strings.Builder
 
@@ -19,17 +23,11 @@ func Curl(cfg Config, resource string) string {
 		b.WriteString(" -k")
 	}
 
-	b.WriteString(" \\\n  -u ")
+	b.WriteString(" -u ")
 	b.WriteString(shellQuote(cfg.Username + ":" + curlPassword(cfg)))
-	b.WriteString(" \\\n  -H ")
+	b.WriteString(" -H ")
 	b.WriteString(shellQuote("Accept: " + contentTypeJSON))
-
-	if cfg.UserAgent != "" {
-		b.WriteString(" \\\n  -H ")
-		b.WriteString(shellQuote("User-Agent: " + cfg.UserAgent))
-	}
-
-	b.WriteString(" \\\n  ")
+	b.WriteString(" ")
 	b.WriteString(shellQuote(cfg.Endpoint + resource))
 
 	return b.String()

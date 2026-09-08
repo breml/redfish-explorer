@@ -15,19 +15,20 @@ straight into a bug report or a script.
 
 ```text
  /redfish/v1/Systems/1                                      RedfishVersion 1.18.0 · 200 OK · 41ms
+ curl -s -k -u 'admin:********' -H 'Accept: application/json' 'https://10.0.0.5/redfish/v1/Systems…
  root > Systems > 1
 ┌ Links (14) ──────────────┬ Response ──────────────────────────────────────────────────────────┐
-│  ..                      │ curl -s -k \                                                       │
-│ ── Resource ──           │   -u 'admin:********' \                                            │
-│  Bios                    │   -H 'Accept: application/json' \                                  │
-│  Storage                 │   'https://10.0.0.5/redfish/v1/Systems/1'                          │
-│ ── Links ──              │                                                                    │
-│  Chassis[0]              │ HTTP/1.1 200 OK                                                    │
-│ ── Actions ──            │ Content-Type: application/json;charset=utf-8                       │
-│  #ComputerSystem.Reset ⚡ │ OData-Version: 4.0                                                 │
-│ ── Oem · Hpe ──   (oem)  │                                                                    │
-│▸ Thermal           (oem) │ {                                                                  │
-│  SmartStorage      (oem) │   "@odata.id": "/redfish/v1/Systems/1",                            │
+│  ..                      │ HTTP/1.1 200 OK                                                    │
+│ ── Resource ──           │ Content-Type: application/json;charset=utf-8                       │
+│  Bios                    │ OData-Version: 4.0                                                 │
+│  Storage                 │                                                                    │
+│ ── Links ──              │ {                                                                  │
+│  Chassis[0]              │   "@odata.id": "/redfish/v1/Systems/1",                            │
+│ ── Actions ──            │   "Id": "1",                                                       │
+│  #ComputerSystem.Reset ⚡ │   "Name": "Contoso Server",                                        │
+│ ── Oem · Hpe ──   (oem)  │   "PowerState": "On",                                              │
+│▸ Thermal           (oem) │   "Bios": {                                                        │
+│  SmartStorage      (oem) │     "@odata.id": "/redfish/v1/Systems/1/Bios"                      │
 └──────────────────────────┴────────────────────────────────────────────────────────────────────┘
  /redfish/v1/Systems/1/Oem/Hpe/Thermal        tab panes · L location · r reload · ? help · q quit
 ```
@@ -88,12 +89,18 @@ run, unwise when the screen is being shared.
 | `tab`                     | switch between the link pane and the response pane |
 | `up` / `down` / `j` / `k` | move through the links                             |
 | `enter`                   | follow the selected link                           |
-| `backspace`               | go one level up                                    |
+| `backspace` / `left`      | go back to the previous location                   |
 | `L`                       | edit the current endpoint, `enter` to load it      |
 | `r`                       | reload the current location, bypassing the cache   |
+| `y`                       | copy the `curl` command to the clipboard           |
 | `page up` / `page down`   | scroll the response pane                           |
-| `?`                       | help overlay                                       |
+| `?`                       | help panel; any key closes it                      |
 | `q` / `ctrl+c`            | quit                                               |
+
+`backspace` and `left` retrace the trail the user actually walked, which is not
+the same as the path tree: a link can lead out of the current subtree, and going
+back returns to where it was followed. To move up the path instead, follow the
+`..` entry at the top of the link pane.
 
 ## What it shows
 
@@ -122,14 +129,41 @@ highlighted in the raw JSON too, so a vendor block is as obvious in the body as
 in the link list. The vendor name comes from the document, never from a built-in
 list: the extensions worth finding are the ones nobody has a list of.
 
-The right pane shows the exact `curl` command for the current location, the
-response status and headers, and the pretty-printed body. Keys stay in the order
-the service sent them, because Redfish services order them meaningfully.
+The header carries the `curl` command for the current location on a single line,
+between the path and the breadcrumb, so it can be selected and copied in one
+gesture. `y` copies it outright, which also gets around the line being truncated
+on a narrow terminal. It omits the `User-Agent` header rfx sets on the real
+request: `curl` sends its own, and no service answers differently because of it.
+
+`y` copies by two routes at once, because neither covers every case. OSC 52
+travels down an SSH connection, which is how a BMC is usually reached, but many
+terminals refuse to act on it: VTE-based ones (GNOME Terminal, Tilix,
+Terminator) never have, and `tmux` (`set -g set-clipboard on`) and `xterm`
+(`allowWindowOps`) need it turned on. The local clipboard always works, but only
+on the machine rfx itself runs on, and on Linux it needs `xclip`, `xsel` or
+`wl-copy` installed.
+
+The footer says which of the two got through: `copied to the clipboard` means
+the local one was written and the text is definitely there, while `sent as
+OSC 52 only` means the local write failed — the footer says why — and the
+terminal may have dropped the blind route too. Running rfx over SSH says
+`sent as OSC 52` as well: the local clipboard there belongs to the far end, so
+nothing about it can be claimed for the machine the user is sitting at.
+
+The right pane shows the response status and headers, and the pretty-printed
+body. Keys stay in the order the service sent them, because Redfish services
+order them meaningfully.
 
 `L` opens the location bar for typing or pasting a path. A full URL copied from
 a browser is accepted and reduced to its path; one naming a different host is
 refused. A path that turns out not to exist simply renders its 404 — probing for
 undocumented endpoints is a first-class use.
+
+Pasting works both ways round: the terminal's own paste (bracketed paste, which
+is what `ctrl+shift+v`, `cmd+v` or a middle click send) needs nothing, while
+`ctrl+v` reads the system clipboard directly and on Linux wants `xclip`, `xsel`
+or `wl-copy` installed. Without them `ctrl+v` says so where the location bar
+shows its hint, rather than pasting nothing.
 
 Responses are cached for `--cache-ttl` (5 minutes by default), so walking back up
 the tree is instant. The header says `cached 12s ago` whenever a view is not
