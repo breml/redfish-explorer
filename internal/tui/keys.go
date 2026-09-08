@@ -39,8 +39,8 @@ func newKeyMap() keyMap {
 			key.WithHelp("enter", "follow"),
 		),
 		Back: key.NewBinding(
-			key.WithKeys("backspace"),
-			key.WithHelp("backspace", "up one level"),
+			key.WithKeys("backspace", "left"),
+			key.WithHelp("←/backspace", "back"),
 		),
 		Tab: key.NewBinding(
 			key.WithKeys("tab"),

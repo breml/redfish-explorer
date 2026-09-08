@@ -88,12 +88,17 @@ run, unwise when the screen is being shared.
 | `tab`                     | switch between the link pane and the response pane |
 | `up` / `down` / `j` / `k` | move through the links                             |
 | `enter`                   | follow the selected link                           |
-| `backspace`               | go one level up                                    |
+| `backspace` / `left`      | go back to the previous location                   |
 | `L`                       | edit the current endpoint, `enter` to load it      |
 | `r`                       | reload the current location, bypassing the cache   |
 | `page up` / `page down`   | scroll the response pane                           |
 | `?`                       | help overlay                                       |
 | `q` / `ctrl+c`            | quit                                               |
+
+`backspace` and `left` retrace the trail the user actually walked, which is not
+the same as the path tree: a link can lead out of the current subtree, and going
+back returns to where it was followed. To move up the path instead, follow the
+`..` entry at the top of the link pane.
 
 ## What it shows
 

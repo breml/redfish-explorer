@@ -75,6 +75,9 @@ type Model struct {
 	cursor    int
 	fromCache bool
 
+	// history is the trail of places a forward navigation has left behind.
+	history []visit
+
 	body    viewport.Model
 	editor  textinput.Model
 	spinner spinner.Model
@@ -82,7 +85,9 @@ type Model struct {
 
 	// pending is the resource currently being fetched, if any.
 	pending string
-	loading bool
+	// pendingNav says what the pending fetch does to the history when it lands.
+	pendingNav navKind
+	loading    bool
 
 	// err is a failure to fetch: it replaces the response pane.
 	err error
@@ -113,12 +118,13 @@ func New(client *redfish.Client, store *cache.Cache, resource string) Model {
 		current: resource,
 		// Init fetches this straight away, so the guard in handleFetched has
 		// to know about it from the start.
-		pending: resource,
-		loading: true,
-		body:    viewport.New(),
-		editor:  newEditor(),
-		spinner: spinner.New(),
-		help:    help.New(),
+		pending:    resource,
+		pendingNav: navStay,
+		loading:    true,
+		body:       viewport.New(),
+		editor:     newEditor(),
+		spinner:    spinner.New(),
+		help:       help.New(),
 	}
 
 	m.rows = buildRows(nil, true)
@@ -179,6 +185,10 @@ func (m Model) View() tea.View {
 // WithResponse returns the model showing a response. It is a value method
 // because Bubble Tea threads the model by value through Update.
 func (m Model) WithResponse(resource string, resp *redfish.Response, fromCache bool) Model {
+	if m.pendingNav == navForward {
+		m = m.pushVisit(m.current, m.cursor)
+	}
+
 	m.current = resource
 	m.resp = resp
 	m.fromCache = fromCache
@@ -290,7 +300,7 @@ func (m Model) submitEditedLocation() (tea.Model, tea.Cmd) {
 
 	// A path that turns out not to exist is a normal outcome, not an error:
 	// probing for undocumented endpoints is what this is for.
-	return m.stopEditing().startFetch(resource, useCache)
+	return m.stopEditing().startFetch(resource, useCache, navForward)
 }
 
 // editedResource turns what was typed into a resource on the connected
@@ -354,10 +364,10 @@ func (m Model) handleNavigationKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.follow()
 
 	case key.Matches(msg, m.keys.Back):
-		return m.goUp()
+		return m.goBack()
 
 	case key.Matches(msg, m.keys.Reload):
-		return m.startFetch(m.current, skipCache)
+		return m.startFetch(m.current, skipCache, navStay)
 
 	case key.Matches(msg, m.keys.Location):
 		return m.startEditing()
@@ -382,7 +392,7 @@ func (m Model) follow() (tea.Model, tea.Cmd) {
 		return m.followAction(r.link)
 	}
 
-	return m.startFetch(r.link.Target, useCache)
+	return m.startFetch(r.link.Target, useCache, navForward)
 }
 
 // followAction opens an action's ActionInfo, which is the only part of an
@@ -390,7 +400,7 @@ func (m Model) follow() (tea.Model, tea.Cmd) {
 // that vendor actions can be discovered at all.
 func (m Model) followAction(link redfish.Link) (tea.Model, tea.Cmd) {
 	if link.ActionInfo != "" {
-		return m.startFetch(link.ActionInfo, useCache)
+		return m.startFetch(link.ActionInfo, useCache, navForward)
 	}
 
 	m.notice = "POST target — not retrievable; write support planned"
@@ -405,7 +415,18 @@ func (m Model) goUp() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	return m.startFetch(parent, useCache)
+	return m.startFetch(parent, useCache, navForward)
+}
+
+// goBack returns to the place the last forward navigation left. With nothing
+// to go back to it does nothing, as goUp does at the service root.
+func (m Model) goBack() (tea.Model, tea.Cmd) {
+	m, previous, ok := m.popVisit()
+	if !ok {
+		return m, nil
+	}
+
+	return m.startFetch(previous.resource, useCache, navBack)
 }
 
 // moveUp moves the cursor or scrolls the response pane, by which pane has focus.

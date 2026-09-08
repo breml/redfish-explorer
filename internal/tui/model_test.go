@@ -421,7 +421,7 @@ func TestHelpOverlay(t *testing.T) {
 		t.Fatalf("want the help overlay, got:\n%s", help)
 	}
 
-	for _, want := range []string{"location", "reload", "up one level", "(oem)"} {
+	for _, want := range []string{"location", "reload", "back", "(oem)"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("help overlay is missing %q", want)
 		}

@@ -23,6 +23,20 @@ func pathLine(m tui.Model) string {
 	return strings.SplitN(screen(m), "\n", 2)[0]
 }
 
+// currentPath returns just the resource from the first header line, which also
+// carries the service metadata. Tests that distinguish a resource from its own
+// prefix need the exact value, not a substring match.
+func currentPath(t *testing.T, m tui.Model) string {
+	t.Helper()
+
+	fields := strings.Fields(pathLine(m))
+	if len(fields) == 0 {
+		t.Fatalf("no resource on the path line, screen:\n%s", screen(m))
+	}
+
+	return fields[0]
+}
+
 // cursorLine returns the rendered row that carries the cursor.
 func cursorLine(m tui.Model) string {
 	for line := range strings.SplitSeq(screen(m), "\n") {
@@ -82,7 +96,7 @@ func TestFollowALink(t *testing.T) {
 	}
 }
 
-func TestDrillDownAndBackUp(t *testing.T) {
+func TestDrillDownAndBackOut(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(t, redfish.RootPath)
@@ -107,14 +121,67 @@ func TestDrillDownAndBackUp(t *testing.T) {
 
 	m = pressCode(t, m, keyBackspace)
 
-	if !strings.Contains(pathLine(m), "/redfish/v1/Systems") {
-		t.Fatalf("path line = %q, want backspace to go one level up", pathLine(m))
+	if got := currentPath(t, m); got != "/redfish/v1/Systems" {
+		t.Fatalf("path = %q, want backspace to retrace the last step", got)
 	}
 
 	m = pressCode(t, m, keyBackspace)
 
-	if !strings.Contains(pathLine(m), "/redfish/v1") {
-		t.Fatalf("path line = %q, want to be back at the service root", pathLine(m))
+	if got := currentPath(t, m); got != redfish.RootPath {
+		t.Fatalf("path = %q, want to be back at the service root", got)
+	}
+}
+
+// Going back retraces where the user came from, which is not the same as
+// walking up the path: a link can lead out of the current subtree.
+func TestBackLeavesThePathTree(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, "/redfish/v1/Systems/1")
+	m = moveTo(t, m, "Chassis[0]")
+	m = pressCode(t, m, keyEnter)
+
+	if !strings.Contains(pathLine(m), "/redfish/v1/Chassis/1") {
+		t.Fatalf("path line = %q, want to have followed the link out of Systems", pathLine(m))
+	}
+
+	m = pressCode(t, m, keyBackspace)
+
+	if !strings.Contains(pathLine(m), "/redfish/v1/Systems/1") {
+		t.Errorf("path line = %q, want back to return to where the link was followed", pathLine(m))
+	}
+}
+
+func TestCursorLeftGoesBackToo(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, redfish.RootPath)
+	m = moveTo(t, m, "Chassis")
+	m = pressCode(t, m, keyEnter)
+
+	if !strings.Contains(pathLine(m), "/redfish/v1/Chassis") {
+		t.Fatalf("path line = %q, want the Chassis collection", pathLine(m))
+	}
+
+	m = pressCode(t, m, tea.KeyLeft)
+
+	if got := currentPath(t, m); got != redfish.RootPath {
+		t.Errorf("path = %q, want cursor left to go back", got)
+	}
+}
+
+// Reload is not a step: it must not become something to go back through.
+func TestReloadDoesNotEnterTheHistory(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, redfish.RootPath)
+	m = moveTo(t, m, "Systems")
+	m = pressCode(t, m, keyEnter)
+	m = press(t, m, "r")
+	m = pressCode(t, m, keyBackspace)
+
+	if got := currentPath(t, m); got != redfish.RootPath {
+		t.Errorf("path = %q, want one back to undo the one step taken", got)
 	}
 }
 
@@ -126,22 +193,30 @@ func TestParentEntryWalksUp(t *testing.T) {
 	// The cursor starts on "..".
 	m = pressCode(t, m, keyEnter)
 
-	if !strings.Contains(pathLine(m), "/redfish/v1/Systems") {
-		t.Errorf("path line = %q, want .. to walk up", pathLine(m))
+	if got := currentPath(t, m); got != "/redfish/v1/Systems" {
+		t.Errorf("path = %q, want .. to walk up", got)
+	}
+
+	// Walking up is a step like any other, so back retraces it.
+	m = pressCode(t, m, keyBackspace)
+
+	if !strings.Contains(pathLine(m), "/redfish/v1/Systems/1") {
+		t.Errorf("path line = %q, want back to undo the walk up", pathLine(m))
 	}
 }
 
-func TestBackspaceStopsAtTheServiceRoot(t *testing.T) {
+func TestBackspaceStopsWhereTheSessionStarted(t *testing.T) {
 	t.Parallel()
 
-	m := newModel(t, redfish.RootPath)
+	m := newModel(t, "/redfish/v1/Systems/1")
 
+	// Nothing has been navigated to yet, so there is nowhere to go back to.
 	for range 3 {
 		m = pressCode(t, m, keyBackspace)
 	}
 
-	if !strings.Contains(pathLine(m), redfish.RootPath) {
-		t.Errorf("path line = %q, want to stay at the service root", pathLine(m))
+	if got := currentPath(t, m); got != "/redfish/v1/Systems/1" {
+		t.Errorf("path = %q, want to stay at the starting resource", got)
 	}
 }
 

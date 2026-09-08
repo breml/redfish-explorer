@@ -91,9 +91,12 @@ func (m Model) withFetchError(resource string, err error) Model {
 	return m
 }
 
-// startFetch begins loading a resource.
-func (m Model) startFetch(resource string, policy cachePolicy) (Model, tea.Cmd) {
+// startFetch begins loading a resource. The navKind travels with the request
+// rather than being applied here, so that a fetch which never lands leaves the
+// history untouched.
+func (m Model) startFetch(resource string, policy cachePolicy, nav navKind) (Model, tea.Cmd) {
 	m.pending = resource
+	m.pendingNav = nav
 	m.loading = true
 	m.notice = ""
 
