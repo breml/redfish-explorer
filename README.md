@@ -94,7 +94,7 @@ run, unwise when the screen is being shared.
 | `r`                       | reload the current location, bypassing the cache   |
 | `y`                       | copy the `curl` command to the clipboard           |
 | `page up` / `page down`   | scroll the response pane                           |
-| `?`                       | help overlay                                       |
+| `?`                       | help panel; any key closes it                      |
 | `q` / `ctrl+c`            | quit                                               |
 
 `backspace` and `left` retrace the trail the user actually walked, which is not

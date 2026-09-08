@@ -238,7 +238,7 @@ func (m Model) handleResize(msg tea.WindowSizeMsg) Model {
 	m.body.SetHeight(max(m.paneContentHeight()-1, 1))
 	m.body.SetContent(m.renderBody())
 	m.editor.SetWidth(max(m.width-frameWidth, 1))
-	m.help.SetWidth(m.width)
+	m.help.SetWidth(max(m.width-frameWidth, 1))
 
 	return m
 }
@@ -570,57 +570,66 @@ func (m Model) render() string {
 			itoa(minWidth) + "x" + itoa(minHeight)
 	}
 
+	middle := lipgloss.JoinHorizontal(lipgloss.Top, m.renderLinks(), m.renderResponse())
 	if m.showHelp {
-		return m.renderHelp()
+		middle = m.renderHelpPane()
 	}
-
-	panes := lipgloss.JoinHorizontal(lipgloss.Top, m.renderLinks(), m.renderResponse())
 
 	return strings.Join([]string{
 		m.renderHeader(m.width),
 		m.theme.Dim.Render(strings.Repeat("─", m.width)),
-		panes,
+		middle,
 		m.renderFooter(m.width),
 	}, "\n")
 }
 
-// renderHelp covers the screen with every binding. Unlike the panes it is not
-// framed by pane, so it has to keep itself inside the terminal on its own.
-func (m Model) renderHelp() string {
-	lines := fit(m.helpLines(), m.height)
+// renderHelpPane draws every binding in one panel across the width of both
+// panes. It takes their place rather than the whole screen, so that the
+// location, the curl command and the key hints stay where they were.
+func (m Model) renderHelpPane() string {
+	inner := m.width - frameWidth
 
-	for i, line := range lines {
-		lines[i] = ansi.Truncate(line, m.width, "…")
-	}
-
-	return strings.Join(lines, "\n")
+	// The title takes the first of the pane's content lines.
+	return m.pane(m.theme.PaneFocused, m.width,
+		m.paneTitleLine("Help", inner),
+		strings.Join(m.helpLines(inner, m.paneContentHeight()-1), "\n"))
 }
 
-// helpLines is the content of the overlay, one terminal line per entry. The
-// key columns arrive as several lines in one string and the notes are longer
-// than a narrow terminal, so both are broken up here: fit counts lines, and
-// would otherwise pad a block that already overflows.
-func (m Model) helpLines() []string {
-	lines := []string{m.theme.Path.Render("rfx — keys"), ""}
+// helpLines is the content of the panel, one terminal line per entry. The key
+// columns arrive as several lines in one string and a note can be longer than a
+// narrow terminal, so both are broken up here: pane counts lines, and would
+// otherwise pad a block that already overflows.
+//
+// How to leave the panel is said in the footer, where the key hints live
+// anyway, so that the panel spends every line it has on content. The blank
+// between the columns and the notes goes the same way when height is short: the
+// notes are content, the spacer is only comfort.
+func (m Model) helpLines(width int, height int) []string {
+	lines := strings.Split(m.help.FullHelpView(m.keys.FullHelp()), "\n")
 
-	lines = append(lines, strings.Split(m.help.FullHelpView(m.keys.FullHelp()), "\n")...)
-	lines = append(lines, "")
+	var notes []string
 
 	for _, note := range helpNotes() {
-		for wrapped := range strings.SplitSeq(ansi.Wrap(note, m.width, ""), "\n") {
-			lines = append(lines, m.theme.Dim.Render(wrapped))
+		for wrapped := range strings.SplitSeq(ansi.Wrap(note, width, ""), "\n") {
+			notes = append(notes, m.theme.Dim.Render(wrapped))
 		}
 	}
 
-	return append(lines, "", m.theme.Hint.Render("any key to close"))
+	if len(lines)+len(notes) < height {
+		lines = append(lines, "")
+	}
+
+	return append(lines, notes...)
 }
 
-// helpNotes explains the link pane markers, below the key columns.
+// helpNotes explains the link pane markers, below the key columns. They are
+// kept short on purpose: at the smallest supported terminal the panel has only
+// just enough room for the key columns and these two lines, and help that
+// silently loses its tail is worse than help that is terse.
 func helpNotes() []string {
 	return []string{
-		"Link pane: (oem) marks a vendor extension, " + actionMarker +
-			" marks a POST-only action target.",
-		"Actions are listed so they can be found; following one opens its ActionInfo.",
+		"(oem) = vendor extension, " + actionMarker + " = POST-only action target.",
+		"Following an action opens its ActionInfo.",
 	}
 }
 
@@ -629,7 +638,7 @@ func (m Model) renderLinks() string {
 	inner := m.linkWidth() - frameWidth
 	height := m.paneContentHeight()
 
-	return m.pane(FocusLinks, m.linkWidth(),
+	return m.pane(m.paneStyle(FocusLinks), m.linkWidth(),
 		m.paneTitleLine(m.linkPaneTitle(), inner), m.renderLinkPane(inner, height-1))
 }
 
@@ -637,14 +646,18 @@ func (m Model) renderLinks() string {
 func (m Model) renderResponse() string {
 	inner := m.bodyWidth() - frameWidth
 
-	return m.pane(FocusBody, m.bodyWidth(), m.paneTitleLine("Response", inner), m.body.View())
+	return m.pane(m.paneStyle(FocusBody), m.bodyWidth(),
+		m.paneTitleLine("Response", inner), m.body.View())
 }
 
 // pane frames a title and a body. Both dimensions passed to lipgloss are the
 // outer ones — Style.Width and Style.Height include the border — and the
-// content is cut to exactly the room inside it, so the two panes always agree
-// and the screen never outgrows the terminal.
-func (m Model) pane(focus Focus, outerWidth int, title string, body string) string {
+// content is cut to exactly the room inside it, so the panes always agree and
+// the screen never outgrows the terminal.
+//
+// The frame arrives as a style rather than as a Focus, because the help panel
+// is framed too and has no place in a two-valued focus.
+func (m Model) pane(frame lipgloss.Style, outerWidth int, title string, body string) string {
 	inner := outerWidth - frameWidth
 
 	lines := append([]string{title}, strings.Split(body, "\n")...)
@@ -654,7 +667,7 @@ func (m Model) pane(focus Focus, outerWidth int, title string, body string) stri
 		lines[i] = ansi.Truncate(line, inner, "…")
 	}
 
-	return m.paneStyle(focus).
+	return frame.
 		Width(outerWidth).
 		Height(m.paneHeight()).
 		Render(strings.Join(lines, "\n"))

@@ -144,6 +144,12 @@ func (m Model) renderFooter(width int) string {
 
 // footerLeft describes what following the highlighted row would do.
 func (m Model) footerLeft() string {
+	// While the help panel is open there is no highlighted row to describe, and
+	// how to leave it is the one thing worth saying.
+	if m.showHelp {
+		return "any key to close"
+	}
+
 	if m.notice != "" {
 		return m.notice
 	}

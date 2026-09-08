@@ -525,7 +525,7 @@ func TestNonJSONBody(t *testing.T) {
 	}
 }
 
-func TestHelpOverlay(t *testing.T) {
+func TestHelpPanel(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(t, "/redfish/v1/Systems/1")
@@ -534,29 +534,56 @@ func TestHelpOverlay(t *testing.T) {
 	m = press(t, m, "?")
 	help := screen(m)
 
-	if !strings.Contains(help, "rfx — keys") {
-		t.Fatalf("want the help overlay, got:\n%s", help)
+	if !strings.Contains(help, "Help ─") {
+		t.Fatalf("want the help panel, got:\n%s", help)
 	}
 
-	for _, want := range []string{"location", "reload", "back", "(oem)"} {
+	for _, want := range []string{"location", "reload", "copy", "back", "(oem)"} {
 		if !strings.Contains(help, want) {
-			t.Errorf("help overlay is missing %q", want)
+			t.Errorf("help panel is missing %q", want)
 		}
-	}
-
-	// It covers the screen rather than sitting beside the panes.
-	if strings.Contains(help, "curl -s") {
-		t.Error("the overlay should cover the response pane")
 	}
 
 	m = press(t, m, "?")
 
 	if screen(m) != before {
-		t.Error("? should toggle the overlay off again")
+		t.Error("? should toggle the panel off again")
 	}
 }
 
-func TestAnyKeyClosesTheHelpOverlay(t *testing.T) {
+// The panel takes the place of the two panes only. Everything framing them
+// stays put, so the user does not lose their bearings while reading it.
+func TestHelpPanelKeepsTheHeaderAndFooter(t *testing.T) {
+	t.Parallel()
+
+	m := press(t, newModel(t, "/redfish/v1/Systems/1"), "?")
+	lines := strings.Split(screen(m), "\n")
+
+	if !strings.Contains(lines[0], "/redfish/v1/Systems/1") {
+		t.Errorf("first line = %q, want the location kept", lines[0])
+	}
+
+	if !strings.Contains(lines[1], "curl -s") {
+		t.Errorf("second line = %q, want the curl command kept", lines[1])
+	}
+
+	if !strings.Contains(lines[2], "root > Systems > 1") {
+		t.Errorf("third line = %q, want the breadcrumb kept", lines[2])
+	}
+
+	if !strings.Contains(footerLine(m), "q quit") {
+		t.Errorf("footer = %q, want the key hints kept", footerLine(m))
+	}
+
+	// The panes themselves are gone: one panel spans the width.
+	for _, gone := range []string{"Links (", "Response ─"} {
+		if strings.Contains(screen(m), gone) {
+			t.Errorf("want the %q pane replaced by the help panel", gone)
+		}
+	}
+}
+
+func TestAnyKeyClosesTheHelpPanel(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(t, "/redfish/v1/Systems/1")
@@ -614,7 +641,7 @@ func TestBreadcrumbElidesFromTheLeft(t *testing.T) {
 	}
 }
 
-func TestHelpOverlayStaysInsideTheTerminal(t *testing.T) {
+func TestHelpPanelStaysInsideTheTerminal(t *testing.T) {
 	t.Parallel()
 
 	m := press(t, newModel(t, "/redfish/v1/Systems/1"), "?")
@@ -633,25 +660,25 @@ func TestHelpOverlayStaysInsideTheTerminal(t *testing.T) {
 		m = resize(m, size.width, size.height)
 		out := styled(m)
 
-		if !strings.Contains(screen(m), "rfx — keys") {
-			t.Fatalf("at %dx%d the overlay is not showing:\n%s", size.width, size.height, screen(m))
+		if !strings.Contains(screen(m), "Help ─") {
+			t.Fatalf("at %dx%d the panel is not showing:\n%s", size.width, size.height, screen(m))
 		}
 
 		lines := strings.Split(out, "\n")
 		if len(lines) > size.height {
-			t.Errorf("at %dx%d the overlay is %d lines tall", size.width, size.height, len(lines))
+			t.Errorf("at %dx%d the help screen is %d lines tall", size.width, size.height, len(lines))
 		}
 
 		for i, line := range lines {
 			if width := lineWidth(line); width > size.width {
-				t.Errorf("at %dx%d overlay line %d is %d columns wide", size.width, size.height, i, width)
+				t.Errorf("at %dx%d line %d is %d columns wide", size.width, size.height, i, width)
 			}
 		}
 
 		// The notes wrap rather than being cut off, so their tail survives even
 		// on the narrowest supported terminal.
 		if !strings.Contains(screen(m), "ActionInfo") {
-			t.Errorf("at %dx%d the overlay lost the end of its notes:\n%s", size.width, size.height, screen(m))
+			t.Errorf("at %dx%d the panel lost the end of its notes:\n%s", size.width, size.height, screen(m))
 		}
 	}
 }
