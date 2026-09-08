@@ -97,6 +97,8 @@ type Model struct {
 	// editErr explains why the typed location was rejected, shown while the
 	// editor stays open so it can be corrected rather than retyped.
 	editErr string
+	// showHelp covers the screen with every binding.
+	showHelp bool
 }
 
 // New returns a model that will load resource from a connected service.
@@ -310,6 +312,17 @@ func (m Model) handleNavigationKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Quit):
 		return m, tea.Quit
 
+	case key.Matches(msg, m.keys.Help):
+		m.showHelp = !m.showHelp
+
+		return m, nil
+
+	// Any other key closes the overlay rather than acting behind it.
+	case m.showHelp:
+		m.showHelp = false
+
+		return m, nil
+
 	case key.Matches(msg, m.keys.Tab):
 		m.focus = m.otherFocus()
 
@@ -485,6 +498,10 @@ func (m Model) render() string {
 			itoa(minWidth) + "x" + itoa(minHeight)
 	}
 
+	if m.showHelp {
+		return m.renderHelp()
+	}
+
 	panes := lipgloss.JoinHorizontal(lipgloss.Top, m.renderLinks(), m.renderResponse())
 
 	return strings.Join([]string{
@@ -493,6 +510,23 @@ func (m Model) render() string {
 		panes,
 		m.renderFooter(m.width),
 	}, "\n")
+}
+
+// renderHelp covers the screen with every binding.
+func (m Model) renderHelp() string {
+	lines := []string{
+		m.theme.Path.Render("rfx — keys"),
+		"",
+		m.help.FullHelpView(m.keys.FullHelp()),
+		"",
+		m.theme.Dim.Render("Link pane: (oem) marks a vendor extension, " +
+			actionMarker + " marks a POST-only action target."),
+		m.theme.Dim.Render("Actions are listed so they can be found; following one opens its ActionInfo."),
+		"",
+		m.theme.Hint.Render("any key to close"),
+	}
+
+	return strings.Join(fit(lines, m.height), "\n")
 }
 
 // renderLinks frames the link pane.

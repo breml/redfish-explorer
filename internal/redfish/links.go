@@ -307,7 +307,7 @@ func (e *extractor) action(raw json.RawMessage, path jsonPath) {
 // pathLikeString records a string that looks like a resource path but was not
 // written as an "@odata.id". Some vendors use plain Uri, href or Target keys.
 func (e *extractor) pathLikeString(value string, path jsonPath) {
-	if !isResourcePath(value) {
+	if !IsResourcePath(value) {
 		return
 	}
 
@@ -475,15 +475,15 @@ func groupRank(title string) int {
 	return len(order) + 1
 }
 
-// isResourcePath reports whether a string looks like a Redfish resource path.
-func isResourcePath(value string) bool {
+// IsResourcePath reports whether a string looks like a Redfish resource path.
+func IsResourcePath(value string) bool {
 	return strings.HasPrefix(value, redfishPrefix) || strings.HasPrefix(value, redfishPrefixUpper)
 }
 
 // headerTarget turns a Location header into a resource path, accepting both the
 // relative and the absolute form.
 func headerTarget(value string) string {
-	if isResourcePath(value) {
+	if IsResourcePath(value) {
 		return value
 	}
 
@@ -492,7 +492,7 @@ func headerTarget(value string) string {
 		return ""
 	}
 
-	if isResourcePath(parsed.Path) {
+	if IsResourcePath(parsed.Path) {
 		return parsed.Path
 	}
 

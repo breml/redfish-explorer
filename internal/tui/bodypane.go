@@ -2,16 +2,12 @@ package tui
 
 import (
 	"bytes"
-	"encoding/json"
 	"net/http"
 	"slices"
 	"strings"
 
 	"github.com/breml/redfish-explorer/internal/redfish"
 )
-
-// jsonIndent is the indentation of the pretty-printed body.
-const jsonIndent = "  "
 
 // renderBody composes the response pane: the curl command that produced the
 // response, then its status and headers, then its body.
@@ -85,24 +81,10 @@ func (m Model) renderResponseBody() string {
 		return m.theme.Dim.Render("empty response body")
 	}
 
-	pretty, ok := prettyJSON(body)
+	pretty, ok := Pretty(body)
 	if !ok {
 		return m.theme.Error.Render("⚠ response body is not valid JSON") + "\n" + string(body)
 	}
 
-	return pretty
-}
-
-// prettyJSON indents a JSON document. It uses json.Indent rather than decoding
-// and re-encoding, because that preserves the order the service wrote its keys
-// in, and Redfish services order them meaningfully.
-func prettyJSON(body []byte) (string, bool) {
-	var out bytes.Buffer
-
-	err := json.Indent(&out, body, "", jsonIndent)
-	if err != nil {
-		return "", false
-	}
-
-	return out.String(), true
+	return Colorize(pretty, m.theme)
 }

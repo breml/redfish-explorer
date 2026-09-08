@@ -32,10 +32,6 @@ straight into a bug report or a script.
  /redfish/v1/Systems/1/Oem/Hpe/Thermal        tab panes · L location · r reload · ? help · q quit
 ```
 
-## Status
-
-Under construction.
-
 ## Install
 
 ```sh
@@ -55,6 +51,13 @@ task build     # binary at bin/rfx
 rfx --host 10.0.0.5 --username admin --password secret --insecure
 ```
 
+An optional trailing argument is the resource to start at, so a path from a bug
+report can be opened directly:
+
+```sh
+rfx -H 10.0.0.5 -u admin -k /redfish/v1/Systems/1
+```
+
 | Flag              | Short | Default         | Description                                                     |
 |-------------------|-------|-----------------|-----------------------------------------------------------------|
 | `--host`          | `-H`  | —               | Redfish host: `10.0.0.5`, `10.0.0.5:8443` or `https://10.0.0.5` |
@@ -64,6 +67,9 @@ rfx --host 10.0.0.5 --username admin --password secret --insecure
 | `--cache-ttl`     |       | `5m`            | how long to cache visited endpoints; `0` disables the cache     |
 | `--show-password` |       | `false`         | show the real password in the rendered curl command             |
 | `--version`       |       |                 | print the version and exit                                      |
+
+rfx fails before it takes over the terminal: an unreachable host, an unverified
+certificate or wrong credentials are reported on a plain terminal and exit 1.
 
 BMCs almost always present a self-signed certificate, so `--insecure` is usually
 required. It is an explicit opt-in rather than a default.
@@ -86,12 +92,48 @@ run, unwise when the screen is being shared.
 | `L`                       | edit the current endpoint, `enter` to load it      |
 | `r`                       | reload the current location, bypassing the cache   |
 | `page up` / `page down`   | scroll the response pane                           |
-| `?`                       | help                                               |
+| `?`                       | help overlay                                       |
 | `q` / `ctrl+c`            | quit                                               |
 
-OEM links are shown in their own colour with an `(oem)` suffix, grouped under
-`Oem · <Vendor>` headers. Action targets are marked `⚡`; they are POST-only and
-are listed for discovery.
+## What it shows
+
+The left pane lists everything the current response links to, grouped by where
+in the document it was found: `Resource`, `Members`, `Links`, `Actions`,
+`Annotations`, one group per OEM vendor, and `Headers`. Within a group the links
+keep the order the service wrote them in.
+
+Beyond the obvious `@odata.id` values, rfx surfaces the things that are easy to
+miss by hand:
+
+- **Action targets**, `Actions.Oem` ones included, marked `⚡`. They answer to
+  POST rather than GET, so they are listed to be discovered; following one opens
+  its `@Redfish.ActionInfo` when it advertises one.
+- **Path-like strings** under plain `Uri`, `href` or `Target` keys, which some
+  vendors use instead of a proper navigation link.
+- **Redfish annotations** — `@Redfish.Settings`,
+  `@Redfish.CollectionCapabilities` and friends — a common hiding place for
+  vendor behaviour.
+- **`Location` and `Content-Location` response headers**, when they point at a
+  Redfish resource.
+
+**OEM material is the point.** Anything below an `Oem` key is drawn in its own
+colour with an `(oem)` suffix, grouped under an `Oem · <Vendor>` heading, and
+highlighted in the raw JSON too, so a vendor block is as obvious in the body as
+in the link list. The vendor name comes from the document, never from a built-in
+list: the extensions worth finding are the ones nobody has a list of.
+
+The right pane shows the exact `curl` command for the current location, the
+response status and headers, and the pretty-printed body. Keys stay in the order
+the service sent them, because Redfish services order them meaningfully.
+
+`L` opens the location bar for typing or pasting a path. A full URL copied from
+a browser is accepted and reduced to its path; one naming a different host is
+refused. A path that turns out not to exist simply renders its 404 — probing for
+undocumented endpoints is a first-class use.
+
+Responses are cached for `--cache-ttl` (5 minutes by default), so walking back up
+the tree is instant. The header says `cached 12s ago` whenever a view is not
+live, and `r` forces a fresh request.
 
 ## Development
 

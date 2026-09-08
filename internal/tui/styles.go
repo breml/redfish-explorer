@@ -39,6 +39,16 @@ type Theme struct {
 	Status lipgloss.Style
 	Header lipgloss.Style
 
+	// Pretty-printed JSON.
+	JSONKey        lipgloss.Style
+	JSONAnnotation lipgloss.Style
+	JSONString     lipgloss.Style
+	JSONLink       lipgloss.Style
+	JSONNumber     lipgloss.Style
+	JSONBool       lipgloss.Style
+	JSONNull       lipgloss.Style
+	JSONPunct      lipgloss.Style
+
 	// Shared.
 	Dim   lipgloss.Style
 	Error lipgloss.Style
@@ -54,14 +64,17 @@ func adaptive(light string, dark string) color.Color {
 // thing on the screen: finding vendor extensions is what rfx is for.
 func NewTheme() Theme {
 	var (
-		text      = adaptive("#1a1a1a", "#e4e4e4")
-		muted     = adaptive("#6c6c6c", "#8a8a8a")
-		accent    = adaptive("#0057b7", "#7aa2f7")
-		oem       = adaptive("#b3005e", "#ff79c6")
-		action    = adaptive("#8a6d00", "#e5c07b")
-		uri       = adaptive("#00707a", "#56b6c2")
-		danger    = adaptive("#b3261e", "#ff6b6b")
-		selection = adaptive("#d7e3ff", "#2b3357")
+		text       = adaptive("#1a1a1a", "#e4e4e4")
+		muted      = adaptive("#6c6c6c", "#8a8a8a")
+		accent     = adaptive("#0057b7", "#7aa2f7")
+		oem        = adaptive("#b3005e", "#ff79c6")
+		action     = adaptive("#8a6d00", "#e5c07b")
+		uri        = adaptive("#00707a", "#56b6c2")
+		danger     = adaptive("#b3261e", "#ff6b6b")
+		annotation = adaptive("#6b3fa0", "#bb9af7")
+		literal    = adaptive("#2a7d2a", "#9ece6a")
+		number     = adaptive("#a35200", "#ff9e64")
+		selection  = adaptive("#d7e3ff", "#2b3357")
 	)
 
 	selected := lipgloss.NewStyle().Background(selection).Bold(true)
@@ -87,6 +100,15 @@ func NewTheme() Theme {
 		Curl:   lipgloss.NewStyle().Foreground(accent),
 		Status: lipgloss.NewStyle().Foreground(text).Bold(true),
 		Header: lipgloss.NewStyle().Foreground(muted),
+
+		JSONKey:        lipgloss.NewStyle().Foreground(text).Bold(true),
+		JSONAnnotation: lipgloss.NewStyle().Foreground(annotation).Bold(true),
+		JSONString:     lipgloss.NewStyle().Foreground(literal),
+		JSONLink:       lipgloss.NewStyle().Foreground(accent).Underline(true),
+		JSONNumber:     lipgloss.NewStyle().Foreground(number),
+		JSONBool:       lipgloss.NewStyle().Foreground(number),
+		JSONNull:       lipgloss.NewStyle().Foreground(muted),
+		JSONPunct:      lipgloss.NewStyle().Foreground(muted),
 
 		Dim:   lipgloss.NewStyle().Foreground(muted),
 		Error: lipgloss.NewStyle().Foreground(danger).Bold(true),

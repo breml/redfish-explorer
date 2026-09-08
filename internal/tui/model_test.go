@@ -3,6 +3,7 @@ package tui_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -404,5 +405,94 @@ func TestNonJSONBody(t *testing.T) {
 
 	if !strings.Contains(screen(m), "<html>nope</html>") {
 		t.Error("the raw body must still be shown")
+	}
+}
+
+func TestHelpOverlay(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, "/redfish/v1/Systems/1")
+	before := screen(m)
+
+	m = press(t, m, "?")
+	help := screen(m)
+
+	if !strings.Contains(help, "rfx — keys") {
+		t.Fatalf("want the help overlay, got:\n%s", help)
+	}
+
+	for _, want := range []string{"location", "reload", "up one level", "(oem)"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("help overlay is missing %q", want)
+		}
+	}
+
+	// It covers the screen rather than sitting beside the panes.
+	if strings.Contains(help, "curl -s") {
+		t.Error("the overlay should cover the response pane")
+	}
+
+	m = press(t, m, "?")
+
+	if screen(m) != before {
+		t.Error("? should toggle the overlay off again")
+	}
+}
+
+func TestAnyKeyClosesTheHelpOverlay(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, "/redfish/v1/Systems/1")
+	before := screen(m)
+
+	m = press(t, m, "?")
+	m = press(t, m, "j")
+
+	if screen(m) != before {
+		t.Error("a key should close the overlay without acting behind it")
+	}
+}
+
+func TestEmptyBodyIsCalledOut(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, redfish.RootPath)
+	m = m.WithResponse("/redfish/v1/Empty", &redfish.Response{Body: nil}, false)
+
+	if !strings.Contains(screen(m), "empty response body") {
+		t.Errorf("want an empty-body notice, got:\n%s", screen(m))
+	}
+}
+
+func TestCachedResponsesAreMarked(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, redfish.RootPath)
+	resp := &redfish.Response{Body: []byte(`{}`), FetchedAt: time.Now().Add(-12 * time.Second)}
+	m = m.WithResponse("/redfish/v1/Cached", resp, true)
+
+	if !strings.Contains(screen(m), "cached 12s ago") {
+		t.Errorf("want the cached age in the header, got:\n%s", pathLine(m))
+	}
+}
+
+func TestBreadcrumbElidesFromTheLeft(t *testing.T) {
+	t.Parallel()
+
+	deep := "/redfish/v1/Systems/1/Storage/Controller/Volumes/VeryLongVolumeIdentifier/Metrics"
+	m := newModel(t, redfish.RootPath)
+	m = m.WithResponse(deep, &redfish.Response{Body: []byte(`{}`)}, false)
+	m = resize(m, 61, 20)
+
+	lines := strings.Split(screen(m), "\n")
+	breadcrumb := lines[1]
+
+	// The tail is the informative end, so the head is what gives way.
+	if !strings.Contains(breadcrumb, "Metrics") {
+		t.Errorf("breadcrumb = %q, want the tail kept", breadcrumb)
+	}
+
+	if !strings.Contains(breadcrumb, "…") {
+		t.Errorf("breadcrumb = %q, want it elided", breadcrumb)
 	}
 }
