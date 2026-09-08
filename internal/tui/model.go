@@ -169,6 +169,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case copiedMsg:
 		return m.handleCopied(msg), nil
 
+	case pastedMsg:
+		return m.handlePasted(msg)
+
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 
@@ -180,10 +183,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.forwardToEditor(msg)
 
 	default:
-		// textinput answers ctrl+v with a message of its own, whose type it
-		// keeps unexported, so anything unrecognised has to reach it while the
-		// editor is open or the paste is lost.
-		return m.forwardToEditor(msg)
+		// Nothing else on the screen takes input. The text input has a paste
+		// of its own that would arrive here, but rfx binds ctrl+v itself
+		// rather than let a failed read go unreported.
+		return m, nil
 	}
 }
 
@@ -199,8 +202,16 @@ func (m Model) View() tea.View {
 // WithResponse returns the model showing a response. It is a value method
 // because Bubble Tea threads the model by value through Update.
 func (m Model) WithResponse(resource string, resp *redfish.Response, fromCache bool) Model {
-	if m.pendingNav == navForward {
+	// The location editor can resolve to the resource already on screen, which
+	// is not a step and must not become one to go back through.
+	if m.pendingNav == navForward && resource != m.current {
 		m = m.pushVisit(m.current, m.cursor)
+	}
+
+	// A step back leaves the trail only once it has actually landed on the
+	// place it was heading for. navStay is neither, and touches nothing.
+	if m.pendingNav == navBack {
+		m = m.dropVisit()
 	}
 
 	m.current = resource
@@ -223,9 +234,10 @@ func (m Model) WithResponse(resource string, resp *redfish.Response, fromCache b
 	return m
 }
 
-// forwardToEditor hands a message to the location editor, when there is one
-// open to receive it. Outside edit mode nothing else on the screen takes input,
-// so the message is simply dropped.
+// forwardToEditor hands the location editor something that changes what is
+// typed, which also retires a refusal: the entry is being corrected, so the
+// hint has done its work. Outside edit mode nothing else on the screen takes
+// input, so the message is simply dropped.
 func (m Model) forwardToEditor(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.mode != ModeEdit {
 		return m, nil
@@ -237,6 +249,23 @@ func (m Model) forwardToEditor(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.editErr = ""
 
 	return m, cmd
+}
+
+// handlePasted puts what the clipboard held into the editor, or says why
+// nothing arrived. It travels the same route as a terminal paste, so that both
+// insert at the cursor and lose their newlines the same way.
+func (m Model) handlePasted(msg pastedMsg) (tea.Model, tea.Cmd) {
+	if m.mode != ModeEdit {
+		return m, nil
+	}
+
+	if msg.err != nil {
+		m.editErr = msg.err.Error()
+
+		return m, nil
+	}
+
+	return m.forwardToEditor(tea.PasteMsg{Content: msg.text})
 }
 
 // cursorPosition puts the terminal cursor in the location editor while it is
@@ -288,6 +317,11 @@ func (m Model) handleEditKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, m.keys.Enter):
 		return m.submitEditedLocation()
+
+	// The text input has a ctrl+v of its own; rfx reads the clipboard itself
+	// so that a machine without the tools to do it says so.
+	case key.Matches(msg, m.keys.Paste):
+		return m, pasteCmd()
 
 	default:
 		return m.forwardToEditor(msg)
@@ -464,8 +498,12 @@ func (m Model) goUp() (tea.Model, tea.Cmd) {
 
 // goBack returns to the place the last forward navigation left. With nothing
 // to go back to it does nothing, as goUp does at the service root.
+//
+// The visit stays on the trail until the fetch lands, so that a step back which
+// never arrives — an unreachable service, a late answer for somewhere the user
+// has since left — does not consume the place it was heading for.
 func (m Model) goBack() (tea.Model, tea.Cmd) {
-	m, previous, ok := m.popVisit()
+	previous, ok := m.lastVisit()
 	if !ok {
 		return m, nil
 	}

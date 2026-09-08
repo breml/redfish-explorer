@@ -145,8 +145,10 @@ on the machine rfx itself runs on, and on Linux it needs `xclip`, `xsel` or
 
 The footer says which of the two got through: `copied to the clipboard` means
 the local one was written and the text is definitely there, while `sent as
-OSC 52` means only the blind route was left and the terminal may have dropped
-it.
+OSC 52 only` means the local write failed — the footer says why — and the
+terminal may have dropped the blind route too. Running rfx over SSH says
+`sent as OSC 52` as well: the local clipboard there belongs to the far end, so
+nothing about it can be claimed for the machine the user is sitting at.
 
 The right pane shows the response status and headers, and the pretty-printed
 body. Keys stay in the order the service sent them, because Redfish services
@@ -160,7 +162,8 @@ undocumented endpoints is a first-class use.
 Pasting works both ways round: the terminal's own paste (bracketed paste, which
 is what `ctrl+shift+v`, `cmd+v` or a middle click send) needs nothing, while
 `ctrl+v` reads the system clipboard directly and on Linux wants `xclip`, `xsel`
-or `wl-copy` installed.
+or `wl-copy` installed. Without them `ctrl+v` says so where the location bar
+shows its hint, rather than pasting nothing.
 
 Responses are cached for `--cache-ttl` (5 minutes by default), so walking back up
 the tree is instant. The header says `cached 12s ago` whenever a view is not

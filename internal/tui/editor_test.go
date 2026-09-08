@@ -1,6 +1,7 @@
 package tui_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -9,6 +10,10 @@ import (
 	"github.com/breml/redfish-explorer/internal/redfish"
 	"github.com/breml/redfish-explorer/internal/tui"
 )
+
+// strayMsg is a message the model knows nothing about, standing in for
+// whatever a bubble may send back while the editor is open.
+type strayMsg struct{}
 
 // keyEsc is escape as the terminal reports it.
 const keyEsc = '\x1b'
@@ -302,6 +307,100 @@ func TestEditorHintClearsOnFurtherTyping(t *testing.T) {
 
 	if strings.Contains(screen(m), "absolute") {
 		t.Error("the refusal should clear once the entry is being corrected")
+	}
+}
+
+// ctrl+v reads the clipboard rather than leaving it to the text input, whose
+// own paste keeps its failure in a field nothing renders.
+func TestCtrlVReadsTheClipboard(t *testing.T) {
+	t.Parallel()
+
+	m := openEditor(t, newModel(t, redfish.RootPath))
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'v', Mod: tea.ModCtrl})
+	if cmd == nil {
+		t.Fatal("ctrl+v produced no command, want the clipboard to be read")
+	}
+
+	if _, ok := cmd().(tea.KeyPressMsg); ok {
+		t.Error("ctrl+v should not have been forwarded to the editor as a key")
+	}
+}
+
+func TestAClipboardReadInsertsWhatItFound(t *testing.T) {
+	t.Parallel()
+
+	m := openEditor(t, newModel(t, redfish.RootPath))
+
+	updated, _ := m.Update(tui.PasteResultMsg("/Systems", nil))
+	m = asModel(updated)
+
+	if !strings.Contains(pathLine(m), redfish.RootPath+"/Systems") {
+		t.Errorf("editor = %q, want the clipboard text inserted at the cursor", pathLine(m))
+	}
+}
+
+// A machine with no clipboard tool has to say so: pasting nothing and
+// reporting nothing is the one outcome the user cannot make sense of.
+func TestAFailedClipboardReadSaysSo(t *testing.T) {
+	t.Parallel()
+
+	m := openEditor(t, newModel(t, redfish.RootPath))
+
+	updated, _ := m.Update(tui.PasteResultMsg("", errors.New("no clipboard utilities available")))
+	m = asModel(updated)
+
+	if !strings.Contains(screen(m), "no clipboard utilities available") {
+		t.Errorf("want the reason the paste failed, screen:\n%s", screen(m))
+	}
+
+	if m.View().Cursor == nil {
+		t.Error("the editor should stay open after a failed paste")
+	}
+}
+
+// A refusal is retired by correcting the entry, and by nothing else: a message
+// that changes no text must not take the only explanation off the screen.
+func TestARefusalSurvivesAMessageThatChangesNothing(t *testing.T) {
+	t.Parallel()
+
+	m := openEditor(t, newModel(t, redfish.RootPath))
+	m = clearEditor(t, m, len(redfish.RootPath))
+	m = typeText(t, m, "nonsense")
+	m = pressCode(t, m, keyEnter)
+
+	if !strings.Contains(screen(m), "absolute") {
+		t.Fatalf("want a refusal first, screen:\n%s", screen(m))
+	}
+
+	updated, _ := m.Update(strayMsg{})
+	m = asModel(updated)
+
+	if !strings.Contains(screen(m), "absolute") {
+		t.Errorf("the refusal must outlive an unrelated message, screen:\n%s", screen(m))
+	}
+}
+
+// Loading the location already on screen is not a step, so it must not become
+// one to go back through.
+func TestSubmittingTheUnchangedLocationIsNotAStep(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, redfish.RootPath)
+	m = moveTo(t, m, "Systems")
+	m = pressCode(t, m, keyEnter)
+
+	m = openEditor(t, m)
+	m = pressCode(t, m, keyEnter)
+
+	if got := currentPath(t, m); got != "/redfish/v1/Systems" {
+		t.Fatalf("path = %q, want to be where the editor was opened", got)
+	}
+
+	m = pressCode(t, m, keyBackspace)
+
+	if got := currentPath(t, m); got != redfish.RootPath {
+		t.Errorf("path = %q, want one back to leave for the service root", got)
 	}
 }
 

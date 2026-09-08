@@ -18,6 +18,11 @@ type keyMap struct {
 	Cancel   key.Binding
 	Help     key.Binding
 	Quit     key.Binding
+	// Paste is ctrl+v in the location editor. It is bound here rather than
+	// left to the text input, because the input keeps a failed read in a field
+	// of its own that nothing on the screen renders: a machine with no
+	// clipboard tool would paste nothing and say nothing.
+	Paste key.Binding
 	// Interrupt is ctrl+c on its own. It is bound apart from Quit because the
 	// location editor has to keep it while suspending every other binding: "q"
 	// is text there, and Bubble Tea leaves ctrl+c to the program in raw mode.
@@ -82,6 +87,10 @@ func newKeyMap() keyMap {
 		Interrupt: key.NewBinding(
 			key.WithKeys("ctrl+c"),
 			key.WithHelp("ctrl+c", "quit"),
+		),
+		Paste: key.NewBinding(
+			key.WithKeys("ctrl+v"),
+			key.WithHelp("ctrl+v", "paste"),
 		),
 	}
 }

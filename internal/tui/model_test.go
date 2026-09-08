@@ -352,8 +352,12 @@ func TestCopyPutsTheCurlCommandOnTheClipboard(t *testing.T) {
 
 // A copy that got no further than OSC 52 cannot be confirmed, and must not be
 // announced as done: a terminal that drops the sequence says nothing back.
+//
+// These tests set the SSH variables rather than reading whatever the machine
+// running them happens to have, because they decide how a copy is described.
+// That rules out t.Parallel.
 func TestCopyReportsOnlyWhatItCanConfirm(t *testing.T) {
-	t.Parallel()
+	runningLocally(t)
 
 	m := newModel(t, "/redfish/v1/Systems/1")
 
@@ -366,6 +370,44 @@ func TestCopyReportsOnlyWhatItCanConfirm(t *testing.T) {
 	if !strings.Contains(screen(asModel(blind)), "OSC 52") {
 		t.Errorf("want an unconfirmed copy to say so, footer:\n%s", footerLine(asModel(blind)))
 	}
+}
+
+// Which of the two routes failed is not the only thing worth knowing: a missing
+// clipboard tool and a session with nowhere to put a selection are different
+// problems, and only the error says which one this is.
+func TestAFailedCopySaysWhyTheLocalOneDidNotWork(t *testing.T) {
+	runningLocally(t)
+
+	m := newModel(t, "/redfish/v1/Systems/1")
+
+	blind, _ := m.Update(tui.CopyResultMsg(errors.New("no clipboard utilities available")))
+	if !strings.Contains(screen(asModel(blind)), "no clipboard utilities available") {
+		t.Errorf("want the reason the local clipboard failed, footer:\n%s", footerLine(asModel(blind)))
+	}
+}
+
+// Over SSH the local clipboard is the far end's, so a write to it says nothing
+// about where the user is sitting: only OSC 52 can get there, and it cannot be
+// confirmed.
+func TestCopyDoesNotClaimTheClipboardOverSSH(t *testing.T) {
+	t.Setenv("SSH_CONNECTION", "192.0.2.2 51000 192.0.2.1 22")
+	t.Setenv("SSH_TTY", "/dev/pts/0")
+
+	m := newModel(t, "/redfish/v1/Systems/1")
+
+	copied, _ := m.Update(tui.CopyResultMsg(nil))
+	if !strings.Contains(screen(asModel(copied)), "OSC 52") {
+		t.Errorf("want the copy described as unconfirmed, footer:\n%s", footerLine(asModel(copied)))
+	}
+}
+
+// runningLocally puts the model on a machine the user is sitting at, whatever
+// the machine running the tests is.
+func runningLocally(t *testing.T) {
+	t.Helper()
+
+	t.Setenv("SSH_CONNECTION", "")
+	t.Setenv("SSH_TTY", "")
 }
 
 func TestCursorMovesAndSkipsGroupHeaders(t *testing.T) {

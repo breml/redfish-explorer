@@ -1,7 +1,10 @@
 package tui_test
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -9,6 +12,7 @@ import (
 
 	"github.com/breml/redfish-explorer/internal/cache"
 	"github.com/breml/redfish-explorer/internal/redfish"
+	"github.com/breml/redfish-explorer/internal/redfishtest"
 	"github.com/breml/redfish-explorer/internal/tui"
 )
 
@@ -256,6 +260,103 @@ func TestReloadDoesNotEnterTheHistory(t *testing.T) {
 
 	if got := currentPath(t, m); got != redfish.RootPath {
 		t.Errorf("path = %q, want one back to undo the one step taken", got)
+	}
+}
+
+// newModelOnAFlakyService returns a model on a fixture service that can be
+// taken away and given back, which closing a test server cannot do. While it is
+// down it drops the connection rather than answering: an unreachable BMC is a
+// transport failure, where a status would be a response rfx would render.
+func newModelOnAFlakyService(t *testing.T, resource string) (tui.Model, *atomic.Bool) {
+	t.Helper()
+
+	fixture := redfishtest.NewServer()
+	t.Cleanup(fixture.Close)
+
+	down := new(atomic.Bool)
+
+	service := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !down.Load() {
+			fixture.Config.Handler.ServeHTTP(w, r)
+
+			return
+		}
+
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			t.Error("the test server does not support hijacking, so it cannot go away")
+
+			return
+		}
+
+		conn, _, err := hijacker.Hijack()
+		if err != nil {
+			t.Errorf("Hijack: %v", err)
+
+			return
+		}
+
+		conn.Close()
+	}))
+	t.Cleanup(service.Close)
+
+	client, err := redfish.Connect(t.Context(), redfishtest.Config(service))
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	t.Cleanup(client.Close)
+
+	m := tui.New(client, cache.New(0), resource)
+	m = resize(m, termWidth, termHeight)
+
+	return drive(t, m, m.Init()), down
+}
+
+// A step back that never lands must not consume the place it was heading for:
+// the trail has to be intact once the service answers again.
+func TestAFailedBackKeepsTheTrail(t *testing.T) {
+	t.Parallel()
+
+	m, down := newModelOnAFlakyService(t, redfish.RootPath)
+
+	m = moveTo(t, m, "Systems")
+	m = pressCode(t, m, keyEnter)
+	m = moveTo(t, m, "1")
+	m = pressCode(t, m, keyEnter)
+
+	if got := currentPath(t, m); got != "/redfish/v1/Systems/1" {
+		t.Fatalf("path = %q, want to have drilled into the member", got)
+	}
+
+	down.Store(true)
+
+	// Two failed attempts, which under a trail unwound before the fetch would
+	// have emptied it.
+	for range 2 {
+		m = pressCode(t, m, keyBackspace)
+
+		if got := currentPath(t, m); got != "/redfish/v1/Systems/1" {
+			t.Fatalf("path = %q, want a failed back to leave the location alone", got)
+		}
+	}
+
+	if !strings.Contains(screen(m), "fetching /redfish/v1/Systems") {
+		t.Fatalf("want the failure reported, screen:\n%s", screen(m))
+	}
+
+	down.Store(false)
+
+	m = pressCode(t, m, keyBackspace)
+
+	if got := currentPath(t, m); got != "/redfish/v1/Systems" {
+		t.Fatalf("path = %q, want back to retrace the last step once the service is up", got)
+	}
+
+	m = pressCode(t, m, keyBackspace)
+
+	if got := currentPath(t, m); got != redfish.RootPath {
+		t.Errorf("path = %q, want the whole trail to have survived", got)
 	}
 }
 
