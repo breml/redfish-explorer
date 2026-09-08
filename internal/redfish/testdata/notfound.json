@@ -1,0 +1,14 @@
+{
+  "error": {
+    "code": "Base.1.18.ResourceMissingAtURI",
+    "message": "The resource at the URI was not found.",
+    "@Message.ExtendedInfo": [
+      {
+        "MessageId": "Base.1.18.ResourceMissingAtURI",
+        "Message": "The resource at the URI was not found.",
+        "Severity": "Critical",
+        "Resolution": "Place a valid resource at the URI or correct the URI and resubmit the request."
+      }
+    ]
+  }
+}

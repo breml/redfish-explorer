@@ -6,12 +6,16 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
+
+	"github.com/breml/redfish-explorer/internal/redfish"
 )
 
 // version is replaced at build time via -ldflags "-X main.version=...".
@@ -23,9 +27,6 @@ const (
 
 	// passwordEnvVar keeps the password out of argv and shell history.
 	passwordEnvVar = "RFX_PASSWORD"
-
-	// maskedPassword stands in for the real password in rendered curl commands.
-	maskedPassword = "********"
 )
 
 // errDone reports that a flag such as -version or -help has already produced
@@ -62,22 +63,60 @@ func run(args []string, stdout io.Writer, stderr io.Writer) error {
 		return err
 	}
 
-	// The connection and the TUI arrive with the following tasks; until then
-	// report the resolved configuration so the wiring can be verified.
-	fmt.Fprintf(stderr, "rfx %s: would connect to %s as %s (insecure=%t, cache-ttl=%s, password=%s)\n",
-		version, cfg.host, cfg.username, cfg.insecure, cfg.cacheTTL, cfg.displayPassword())
+	clientCfg, err := cfg.clientConfig()
+	if err != nil {
+		return err
+	}
+
+	// Connecting before anything is drawn is deliberate: a bad host, an
+	// unverified certificate or wrong credentials must be reported on a plain
+	// terminal, not behind a full-screen UI.
+	client, err := redfish.Connect(context.Background(), clientCfg)
+	if err != nil {
+		return err
+	}
+
+	defer client.Close()
+
+	// The terminal UI arrives with the following tasks; until then report what
+	// the service says about itself so the connection can be verified.
+	report(stderr, client)
 
 	return nil
 }
 
-// displayPassword returns the password as it should appear in user-visible
-// output, masked unless the user opted out.
-func (c *config) displayPassword() string {
-	if c.showPassword {
-		return c.password
+// report describes the connected service and the request rfx would make.
+func report(w io.Writer, client *redfish.Client) {
+	cfg := client.Config()
+	service := client.Service()
+
+	fmt.Fprintf(w, "connected to %s\n", cfg.Endpoint)
+	fmt.Fprintf(w, "  Redfish version: %s\n", service.RedfishVersion)
+	fmt.Fprintf(w, "  vendor:          %s\n", service.Vendor)
+	fmt.Fprintf(w, "  product:         %s\n", service.Product)
+
+	if len(service.OEMVendors) > 0 {
+		fmt.Fprintf(w, "  OEM extensions:  %s\n", strings.Join(service.OEMVendors, ", "))
 	}
 
-	return maskedPassword
+	fmt.Fprintf(w, "\n%s\n", redfish.Curl(cfg, redfish.RootPath))
+}
+
+// clientConfig turns the resolved command line into a client configuration.
+func (c *config) clientConfig() (redfish.Config, error) {
+	endpoint, err := redfish.NormalizeHost(c.host)
+	if err != nil {
+		return redfish.Config{}, err
+	}
+
+	return redfish.Config{
+		Endpoint:     endpoint,
+		Username:     c.username,
+		Password:     c.password,
+		Insecure:     c.insecure,
+		ShowPassword: c.showPassword,
+		UserAgent:    "rfx/" + version,
+	}, nil
 }
 
 // parseFlags reads the command line and the environment into a config. It

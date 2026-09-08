@@ -1,0 +1,52 @@
+{
+  "@odata.type": "#ComputerSystem.v1_22_0.ComputerSystem",
+  "@odata.id": "/redfish/v1/Systems/1",
+  "Id": "1",
+  "Name": "Contoso Server",
+  "SerialNumber": "OD381957S",
+  "PowerState": "On",
+  "Bios": {
+    "@odata.id": "/redfish/v1/Systems/1/Bios"
+  },
+  "SecureBoot": {
+    "@odata.id": "/redfish/v1/Systems/1/SecureBoot"
+  },
+  "Links": {
+    "Chassis": [
+      {
+        "@odata.id": "/redfish/v1/Chassis/1"
+      }
+    ],
+    "ManagedBy": [
+      {
+        "@odata.id": "/redfish/v1/Managers/BMC"
+      }
+    ]
+  },
+  "Actions": {
+    "#ComputerSystem.Reset": {
+      "target": "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset",
+      "@Redfish.ActionInfo": "/redfish/v1/Systems/1/ResetActionInfo"
+    },
+    "Oem": {
+      "#Contoso.SecureErase": {
+        "target": "/redfish/v1/Systems/1/Actions/Oem/Contoso.SecureErase"
+      }
+    }
+  },
+  "@Redfish.Settings": {
+    "@odata.type": "#Settings.v1_3_5.Settings",
+    "SettingsObject": {
+      "@odata.id": "/redfish/v1/Systems/1/Settings"
+    }
+  },
+  "Oem": {
+    "Contoso": {
+      "@odata.type": "#ContosoComputerSystemExt.v2_0_0.ContosoComputerSystemExt",
+      "Thermal": {
+        "@odata.id": "/redfish/v1/Systems/1/Oem/Contoso/Thermal"
+      },
+      "SmartStorageUri": "/redfish/v1/Systems/1/Oem/Contoso/SmartStorage"
+    }
+  }
+}

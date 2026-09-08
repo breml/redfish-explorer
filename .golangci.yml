@@ -709,6 +709,13 @@ linters:
       # Default: false
       context-todo: true
 
+    wrapcheck:
+      # An error crossing a package boundary inside this module is already
+      # carrying its own context; wrapping it again only duplicates it.
+      # Default: []
+      ignore-package-globs:
+        - github.com/breml/redfish-explorer/*
+
   exclusions:
     generated: strict
     # Predefined exclusion rules.
