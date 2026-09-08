@@ -24,7 +24,7 @@ straight into a bug report or a script.
 │ ── Links ──              │                                                                    │
 │  Chassis[0]              │ HTTP/1.1 200 OK                                                    │
 │ ── Actions ──            │ Content-Type: application/json;charset=utf-8                       │
-│  #ComputerSystem.Reset ⚡│ OData-Version: 4.0                                                 │
+│  #ComputerSystem.Reset ⚡ │ OData-Version: 4.0                                                 │
 │ ── Oem · Hpe ──   (oem)  │                                                                    │
 │▸ Thermal           (oem) │ {                                                                  │
 │  SmartStorage      (oem) │   "@odata.id": "/redfish/v1/Systems/1",                            │
@@ -145,11 +145,3 @@ task test
 task lint              # needs: npm install -g markdownlint-cli2
 task format
 ```
-
-## Planned
-
-Search within the response body; jq-style filtering; `POST`/`PATCH`/`DELETE`
-with an editor dialog; a config file storing hosts and credentials per endpoint;
-a script mode that submits a change and polls the returned task monitor; session
-authentication (`X-Auth-Token`); reading the password from a file, from stdin,
-or from an interactive prompt.
