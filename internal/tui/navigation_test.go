@@ -18,6 +18,9 @@ const (
 	keyBackspace = '\x7f'
 )
 
+// parentEntry is the ".." row, as the link pane draws it.
+const parentEntry = ".."
+
 // pathLine returns the first header line, which names the current resource.
 func pathLine(m tui.Model) string {
 	return strings.SplitN(screen(m), "\n", 2)[0]
@@ -167,6 +170,62 @@ func TestCursorLeftGoesBackToo(t *testing.T) {
 
 	if got := currentPath(t, m); got != redfish.RootPath {
 		t.Errorf("path = %q, want cursor left to go back", got)
+	}
+}
+
+func TestBackRestoresTheCursorPosition(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, "/redfish/v1/Systems/1")
+
+	// A row well down the pane, below two group headings, so a reset to the
+	// first selectable row would be unmistakable.
+	m = moveTo(t, m, "ManagedBy[0]")
+	m = pressCode(t, m, keyEnter)
+
+	if got := currentPath(t, m); got != "/redfish/v1/Managers/BMC" {
+		t.Fatalf("path = %q, want to have followed the link", got)
+	}
+
+	m = pressCode(t, m, keyBackspace)
+
+	if got := currentPath(t, m); got != "/redfish/v1/Systems/1" {
+		t.Fatalf("path = %q, want to be back", got)
+	}
+
+	if !strings.Contains(cursorLine(m), "ManagedBy[0]") {
+		t.Errorf("cursor is on %q, want the row the link was followed from", cursorLine(m))
+	}
+}
+
+// A forward step is a new place, so it starts at the top of its link pane. The
+// service root has "Systems" where the Systems collection has its member, so a
+// row index carried across would land on the member rather than on "..".
+func TestFollowingALinkStartsAtTheTop(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, redfish.RootPath)
+	m = moveTo(t, m, "Systems")
+	m = pressCode(t, m, keyEnter)
+
+	if got := currentPath(t, m); got != "/redfish/v1/Systems" {
+		t.Fatalf("path = %q, want the Systems collection", got)
+	}
+
+	if !strings.Contains(cursorLine(m), parentEntry) {
+		t.Errorf("cursor is on %q, want the .. entry of the new resource", cursorLine(m))
+	}
+}
+
+func TestReloadKeepsTheCursorPosition(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, "/redfish/v1/Systems/1")
+	m = moveTo(t, m, "ManagedBy[0]")
+	m = press(t, m, "r")
+
+	if !strings.Contains(cursorLine(m), "ManagedBy[0]") {
+		t.Errorf("cursor is on %q, want reload to keep the user's place", cursorLine(m))
 	}
 }
 

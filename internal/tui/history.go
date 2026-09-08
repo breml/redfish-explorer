@@ -4,6 +4,10 @@ package tui
 // resources, and only the recent ones are worth stepping back through.
 const maxHistory = 256
 
+// noCursor asks for the cursor to start at the top of the link pane, rather
+// than on a remembered row.
+const noCursor = -1
+
 // visit is a place the user has been, and where the cursor stood when they
 // left it.
 type visit struct {
