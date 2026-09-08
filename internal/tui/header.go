@@ -19,9 +19,23 @@ const (
 )
 
 // renderHeader draws the two header lines: the current path with the service
-// metadata, and the breadcrumb trail.
+// metadata, and the breadcrumb trail. While the location is being edited the
+// first line becomes the editor and the second explains it.
 func (m Model) renderHeader(width int) string {
+	if m.mode == ModeEdit {
+		return m.editor.View() + "\n" + m.renderEditHint(width)
+	}
+
 	return m.renderPathLine(width) + "\n" + m.renderBreadcrumb(width)
+}
+
+// renderEditHint says what the editor accepts, or why the entry was refused.
+func (m Model) renderEditHint(width int) string {
+	if m.editErr != "" {
+		return m.theme.Error.Render(ansi.Truncate(m.editErr, width, "…"))
+	}
+
+	return m.theme.Dim.Render(ansi.Truncate("enter load · esc cancel", width, "…"))
 }
 
 // renderPathLine draws the current path on the left and what the service said

@@ -14,6 +14,7 @@ type keyMap struct {
 	Reload   key.Binding
 	PageUp   key.Binding
 	PageDown key.Binding
+	Cancel   key.Binding
 	Help     key.Binding
 	Quit     key.Binding
 }
@@ -56,6 +57,10 @@ func newKeyMap() keyMap {
 		PageDown: key.NewBinding(
 			key.WithKeys("pgdown"),
 			key.WithHelp("pgdn", "scroll down"),
+		),
+		Cancel: key.NewBinding(
+			key.WithKeys("esc"),
+			key.WithHelp("esc", "cancel"),
 		),
 		Help: key.NewBinding(
 			key.WithKeys("?"),

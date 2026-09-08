@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 
 	"charm.land/bubbles/v2/help"
@@ -24,6 +25,16 @@ const (
 	FocusLinks Focus = iota
 	// FocusBody scrolls the response pane.
 	FocusBody
+)
+
+// Mode says whether the header is being edited.
+type Mode int
+
+const (
+	// ModeNormal is ordinary navigation.
+	ModeNormal Mode = iota
+	// ModeEdit is editing the location in the header.
+	ModeEdit
 )
 
 // Layout constants.
@@ -55,6 +66,7 @@ type Model struct {
 	width  int
 	height int
 	focus  Focus
+	mode   Mode
 
 	current   string
 	resp      *redfish.Response
@@ -82,6 +94,9 @@ type Model struct {
 	// showing exactly what the service sent is the point of the tool.
 	linkErr error
 	notice  string
+	// editErr explains why the typed location was rejected, shown while the
+	// editor stays open so it can be corrected rather than retyped.
+	editErr string
 }
 
 // New returns a model that will load resource from a connected service.
@@ -99,7 +114,7 @@ func New(client *redfish.Client, store *cache.Cache, resource string) Model {
 		pending: resource,
 		loading: true,
 		body:    viewport.New(),
-		editor:  textinput.New(),
+		editor:  newEditor(),
 		spinner: spinner.New(),
 		help:    help.New(),
 	}
@@ -107,6 +122,18 @@ func New(client *redfish.Client, store *cache.Cache, resource string) Model {
 	m.rows = buildRows(nil, true)
 
 	return m
+}
+
+// newEditor returns the location input used by the header.
+func newEditor() textinput.Model {
+	editor := textinput.New()
+	editor.Prompt = ""
+
+	// The real terminal cursor is placed by View, so that it lands in the
+	// header where the user is typing.
+	editor.SetVirtualCursor(false)
+
+	return editor
 }
 
 // Init loads the service root.
@@ -142,6 +169,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() tea.View {
 	view := tea.NewView(m.render())
 	view.AltScreen = true
+	view.Cursor = m.cursorPosition()
 
 	return view
 }
@@ -169,6 +197,18 @@ func (m Model) WithResponse(resource string, resp *redfish.Response, fromCache b
 	return m
 }
 
+// cursorPosition puts the terminal cursor in the location editor while it is
+// open, and hides it otherwise.
+func (m Model) cursorPosition() *tea.Cursor {
+	if m.mode != ModeEdit {
+		return nil
+	}
+
+	// The editor occupies the first header line, so its own X offset is the
+	// screen X and the row is zero.
+	return m.editor.Cursor()
+}
+
 // handleResize lays the panes out for a new terminal size.
 func (m Model) handleResize(msg tea.WindowSizeMsg) Model {
 	m.width = msg.Width
@@ -183,8 +223,89 @@ func (m Model) handleResize(msg tea.WindowSizeMsg) Model {
 	return m
 }
 
-// handleKey handles a key press in normal mode.
+// handleKey routes a key press by mode.
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.mode == ModeEdit {
+		return m.handleEditKey(msg)
+	}
+
+	return m.handleNavigationKey(msg)
+}
+
+// handleEditKey handles a key press while the location is being edited. Every
+// other binding is suspended: typing "r" into a path must not reload.
+func (m Model) handleEditKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, m.keys.Cancel):
+		return m.stopEditing(), nil
+
+	case key.Matches(msg, m.keys.Enter):
+		return m.submitEditedLocation()
+
+	default:
+		var cmd tea.Cmd
+
+		m.editor, cmd = m.editor.Update(msg)
+		m.editErr = ""
+
+		return m, cmd
+	}
+}
+
+// startEditing opens the location editor on the current resource.
+func (m Model) startEditing() (tea.Model, tea.Cmd) {
+	m.mode = ModeEdit
+	m.editErr = ""
+	m.editor.SetValue(m.current)
+	m.editor.CursorEnd()
+
+	return m, m.editor.Focus()
+}
+
+// stopEditing closes the editor and restores the header.
+func (m Model) stopEditing() Model {
+	m.mode = ModeNormal
+	m.editErr = ""
+	m.editor.Blur()
+
+	return m
+}
+
+// submitEditedLocation loads what was typed, or explains why it cannot.
+func (m Model) submitEditedLocation() (tea.Model, tea.Cmd) {
+	resource, err := m.editedResource()
+	if err != nil {
+		// Keep the editor open so the entry can be corrected in place.
+		m.editErr = err.Error()
+
+		return m, nil
+	}
+
+	// A path that turns out not to exist is a normal outcome, not an error:
+	// probing for undocumented endpoints is what this is for.
+	return m.stopEditing().startFetch(resource, useCache)
+}
+
+// editedResource turns what was typed into a resource on the connected
+// endpoint. A full URL pasted from a browser is accepted; one naming a
+// different host is refused, because silently querying another machine than
+// the one in the header would be a real hazard.
+func (m Model) editedResource() (string, error) {
+	typed := strings.TrimSpace(m.editor.Value())
+	if typed == "" {
+		return "", errors.New("enter a resource path, for example " + redfish.RootPath + "/Systems")
+	}
+
+	target, err := m.client.Resolve(typed)
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimPrefix(target, m.cfg.Endpoint), nil
+}
+
+// handleNavigationKey handles a key press in normal mode.
+func (m Model) handleNavigationKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Quit):
 		return m, tea.Quit
@@ -219,6 +340,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, m.keys.Reload):
 		return m.startFetch(m.current, skipCache)
+
+	case key.Matches(msg, m.keys.Location):
+		return m.startEditing()
 
 	default:
 		return m, nil

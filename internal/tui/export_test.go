@@ -5,3 +5,8 @@ package tui
 func StaleFetchedMsg(resource string) any {
 	return fetchedMsg{resource: resource, response: nil}
 }
+
+// Endpoint returns the connected endpoint. It exists for tests only.
+func (m Model) Endpoint() string {
+	return m.cfg.Endpoint
+}
