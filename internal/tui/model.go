@@ -238,6 +238,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // other binding is suspended: typing "r" into a path must not reload.
 func (m Model) handleEditKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
+	// Every binding but the interrupt: leaving esc as the only way out of the
+	// program would be a trap, and ctrl+c is not a signal in raw mode.
+	case key.Matches(msg, m.keys.Interrupt):
+		return m, tea.Quit
+
 	case key.Matches(msg, m.keys.Cancel):
 		return m.stopEditing(), nil
 
@@ -414,6 +419,8 @@ func (m Model) moveUp() Model {
 	for i := m.cursor - 1; i >= 0; i-- {
 		if m.rows[i].selectable() {
 			m.cursor = i
+			// A notice describes the row it was raised on, not this one.
+			m.notice = ""
 
 			break
 		}
@@ -433,6 +440,7 @@ func (m Model) moveDown() Model {
 	for i := m.cursor + 1; i < len(m.rows); i++ {
 		if m.rows[i].selectable() {
 			m.cursor = i
+			m.notice = ""
 
 			break
 		}
@@ -512,21 +520,44 @@ func (m Model) render() string {
 	}, "\n")
 }
 
-// renderHelp covers the screen with every binding.
+// renderHelp covers the screen with every binding. Unlike the panes it is not
+// framed by pane, so it has to keep itself inside the terminal on its own.
 func (m Model) renderHelp() string {
-	lines := []string{
-		m.theme.Path.Render("rfx — keys"),
-		"",
-		m.help.FullHelpView(m.keys.FullHelp()),
-		"",
-		m.theme.Dim.Render("Link pane: (oem) marks a vendor extension, " +
-			actionMarker + " marks a POST-only action target."),
-		m.theme.Dim.Render("Actions are listed so they can be found; following one opens its ActionInfo."),
-		"",
-		m.theme.Hint.Render("any key to close"),
+	lines := fit(m.helpLines(), m.height)
+
+	for i, line := range lines {
+		lines[i] = ansi.Truncate(line, m.width, "…")
 	}
 
-	return strings.Join(fit(lines, m.height), "\n")
+	return strings.Join(lines, "\n")
+}
+
+// helpLines is the content of the overlay, one terminal line per entry. The
+// key columns arrive as several lines in one string and the notes are longer
+// than a narrow terminal, so both are broken up here: fit counts lines, and
+// would otherwise pad a block that already overflows.
+func (m Model) helpLines() []string {
+	lines := []string{m.theme.Path.Render("rfx — keys"), ""}
+
+	lines = append(lines, strings.Split(m.help.FullHelpView(m.keys.FullHelp()), "\n")...)
+	lines = append(lines, "")
+
+	for _, note := range helpNotes() {
+		for wrapped := range strings.SplitSeq(ansi.Wrap(note, m.width, ""), "\n") {
+			lines = append(lines, m.theme.Dim.Render(wrapped))
+		}
+	}
+
+	return append(lines, "", m.theme.Hint.Render("any key to close"))
+}
+
+// helpNotes explains the link pane markers, below the key columns.
+func helpNotes() []string {
+	return []string{
+		"Link pane: (oem) marks a vendor extension, " + actionMarker +
+			" marks a POST-only action target.",
+		"Actions are listed so they can be found; following one opens its ActionInfo.",
+	}
 }
 
 // renderLinks frames the link pane.

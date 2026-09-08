@@ -287,3 +287,21 @@ func TestArrowsScrollTheResponsePaneWhenItHasFocus(t *testing.T) {
 		t.Error("with the response pane focused, j should scroll it")
 	}
 }
+
+func TestTheActionNoticeClearsWhenTheCursorMoves(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, "/redfish/v1/Systems/1")
+	m = moveTo(t, m, "#Contoso.SecureErase")
+	m = pressCode(t, m, keyEnter)
+
+	if !strings.Contains(screen(m), "not retrievable") {
+		t.Fatalf("want the notice first, screen:\n%s", screen(m))
+	}
+
+	m = press(t, m, "k")
+
+	if strings.Contains(screen(m), "not retrievable") {
+		t.Errorf("the notice must not outlive the row it describes, screen:\n%s", screen(m))
+	}
+}

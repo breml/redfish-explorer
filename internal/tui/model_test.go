@@ -496,3 +496,60 @@ func TestBreadcrumbElidesFromTheLeft(t *testing.T) {
 		t.Errorf("breadcrumb = %q, want it elided", breadcrumb)
 	}
 }
+
+func TestHelpOverlayStaysInsideTheTerminal(t *testing.T) {
+	t.Parallel()
+
+	m := press(t, newModel(t, "/redfish/v1/Systems/1"), "?")
+
+	sizes := []struct {
+		width  int
+		height int
+	}{
+		{width: 200, height: 60},
+		{width: 80, height: 24},
+		{width: 60, height: 15},
+		{width: 120, height: 20},
+	}
+
+	for _, size := range sizes {
+		m = resize(m, size.width, size.height)
+		out := styled(m)
+
+		if !strings.Contains(screen(m), "rfx — keys") {
+			t.Fatalf("at %dx%d the overlay is not showing:\n%s", size.width, size.height, screen(m))
+		}
+
+		lines := strings.Split(out, "\n")
+		if len(lines) > size.height {
+			t.Errorf("at %dx%d the overlay is %d lines tall", size.width, size.height, len(lines))
+		}
+
+		for i, line := range lines {
+			if width := lineWidth(line); width > size.width {
+				t.Errorf("at %dx%d overlay line %d is %d columns wide", size.width, size.height, i, width)
+			}
+		}
+
+		// The notes wrap rather than being cut off, so their tail survives even
+		// on the narrowest supported terminal.
+		if !strings.Contains(screen(m), "ActionInfo") {
+			t.Errorf("at %dx%d the overlay lost the end of its notes:\n%s", size.width, size.height, screen(m))
+		}
+	}
+}
+
+func TestLinkPaneKeepsTheParentEntryOnANonJSONBody(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, redfishtest.BrokenPath)
+
+	if !strings.Contains(screen(m), "no links:") {
+		t.Fatalf("want the not-JSON link notice, screen:\n%s", screen(m))
+	}
+
+	// The cursor is on "..", so it has to be drawn: it is the only way back up.
+	if !strings.Contains(cursorLine(m), "..") {
+		t.Errorf("want the .. entry under the cursor, screen:\n%s", screen(m))
+	}
+}

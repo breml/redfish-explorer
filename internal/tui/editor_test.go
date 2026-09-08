@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/breml/redfish-explorer/internal/redfish"
 	"github.com/breml/redfish-explorer/internal/tui"
 )
@@ -254,5 +256,20 @@ func TestEditorHintClearsOnFurtherTyping(t *testing.T) {
 
 	if strings.Contains(screen(m), "absolute") {
 		t.Error("the refusal should clear once the entry is being corrected")
+	}
+}
+
+func TestEditorKeepsTheInterrupt(t *testing.T) {
+	t.Parallel()
+
+	m := openEditor(t, newModel(t, redfish.RootPath))
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if cmd == nil {
+		t.Fatal("ctrl+c must not be swallowed by the editor")
+	}
+
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Errorf("ctrl+c returned %T, want a quit", cmd())
 	}
 }

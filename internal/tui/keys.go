@@ -17,6 +17,10 @@ type keyMap struct {
 	Cancel   key.Binding
 	Help     key.Binding
 	Quit     key.Binding
+	// Interrupt is ctrl+c on its own. It is bound apart from Quit because the
+	// location editor has to keep it while suspending every other binding: "q"
+	// is text there, and Bubble Tea leaves ctrl+c to the program in raw mode.
+	Interrupt key.Binding
 }
 
 // newKeyMap returns the default bindings.
@@ -69,6 +73,10 @@ func newKeyMap() keyMap {
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),
 			key.WithHelp("q", "quit"),
+		),
+		Interrupt: key.NewBinding(
+			key.WithKeys("ctrl+c"),
+			key.WithHelp("ctrl+c", "quit"),
 		),
 	}
 }

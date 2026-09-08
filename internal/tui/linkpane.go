@@ -100,8 +100,11 @@ func countLinks(rows []row) int {
 // renderLinkPane draws the link pane body, scrolled so that the cursor is
 // visible.
 func (m Model) renderLinkPane(width int, height int) string {
+	// The parent row is drawn whatever went wrong: the cursor is sitting on it,
+	// and it is the only way back up.
 	if m.linkErr != nil {
-		return m.theme.Dim.Render("no links: " + m.linkErr.Error())
+		return m.renderRow(m.rows[0], m.stateOf(0), width) + "\n" +
+			m.theme.Dim.Render("no links: "+m.linkErr.Error())
 	}
 
 	if countLinks(m.rows) == 0 {

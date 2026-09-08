@@ -119,7 +119,7 @@ func ExtractLinks(resp *Response) ([]Group, string, error) {
 		return nil, "", nil
 	}
 
-	ext := &extractor{}
+	ext := &extractor{base: responseBase(resp)}
 
 	err := ext.walkBody(resp.Body)
 	if err != nil {
@@ -142,6 +142,47 @@ type found struct {
 type extractor struct {
 	found []found
 	self  string
+	// base is the URL the response came from, against which a target spelled
+	// as an absolute URL is recognised as belonging to the same service.
+	base *url.URL
+}
+
+// responseBase parses the URL a response was fetched from. A response built by
+// hand, as in a test, need not carry one.
+func responseBase(resp *Response) *url.URL {
+	if resp.URL == "" {
+		return nil
+	}
+
+	base, err := url.Parse(resp.URL)
+	if err != nil {
+		return nil
+	}
+
+	return base
+}
+
+// resourceTarget reduces a link target to a path on the service the response
+// came from. Some services spell "@odata.id" and action targets as absolute
+// URLs, which would otherwise be appended to the endpoint a second time when
+// the link is followed or rendered as a curl command. A target on another host
+// is left as it stands, so that following it is still refused rather than
+// quietly redirected to the connected machine.
+func (e *extractor) resourceTarget(target string) string {
+	if strings.HasPrefix(target, "/") {
+		return target
+	}
+
+	parsed, err := url.Parse(target)
+	if err != nil || !parsed.IsAbs() {
+		return target
+	}
+
+	if e.base == nil || !strings.EqualFold(parsed.Host, e.base.Host) {
+		return target
+	}
+
+	return parsed.RequestURI()
 }
 
 // walkBody reads the body and collects every link it holds.
@@ -220,6 +261,8 @@ func (e *extractor) selfOrLink(members []member, path jsonPath) {
 		return
 	}
 
+	target = e.resourceTarget(target)
+
 	if len(path) == 0 {
 		e.self = target
 
@@ -295,12 +338,14 @@ func (e *extractor) action(raw json.RawMessage, path jsonPath) {
 		return
 	}
 
+	// The ActionInfo is fetched when the action is followed, so it needs the
+	// same reduction to a path as the target itself.
 	e.add(Link{
 		Label:      path.label(),
-		Target:     target,
+		Target:     e.resourceTarget(target),
 		JSONPath:   path.String(),
 		Kind:       KindAction,
-		ActionInfo: info,
+		ActionInfo: e.resourceTarget(info),
 	}, path)
 }
 
@@ -359,6 +404,13 @@ func (e *extractor) add(link Link, path jsonPath) {
 func (e *extractor) dropShadowedURIs() {
 	resources := map[string]bool{}
 
+	// The self link is not among the found links, but a path-like string that
+	// repeats it still points at the current resource, which the contract keeps
+	// out of the groups.
+	if e.self != "" {
+		resources[e.self] = true
+	}
+
 	for _, f := range e.found {
 		if f.link.Kind == KindResource {
 			resources[f.link.Target] = true
@@ -396,7 +448,13 @@ func (e *extractor) groups() []Group {
 	}
 
 	slices.SortStableFunc(titles, func(a, b string) int {
-		return groupRank(a) - groupRank(b)
+		rank := groupRank(a) - groupRank(b)
+		if rank != 0 {
+			return rank
+		}
+
+		// Only the OEM groups share a rank, and their titles carry the vendor.
+		return strings.Compare(a, b)
 	})
 
 	groups := make([]Group, 0, len(titles))
@@ -458,8 +516,9 @@ func oemVendor(name string) string {
 	return vendor
 }
 
-// groupRank orders the groups for display. OEM groups sit between the standard
-// ones and the header links, sorted by vendor.
+// groupRank orders the groups for display. OEM groups share one rank, between
+// the standard groups and the header links; groups breaks the tie by title,
+// which orders them by vendor.
 func groupRank(title string) int {
 	order := []string{groupResource, groupMembers, groupLinks, groupActions, groupAnnotations}
 

@@ -578,3 +578,73 @@ func TestExtractLinksMultipleVendors(t *testing.T) {
 		}
 	}
 }
+
+func TestExtractLinksReducesAbsoluteTargetsToPaths(t *testing.T) {
+	t.Parallel()
+
+	resp := &redfish.Response{
+		URL: "https://10.0.0.5/redfish/v1/Systems/1",
+		Body: []byte(`{
+  "@odata.id": "https://10.0.0.5/redfish/v1/Systems/1",
+  "Bios": {"@odata.id": "https://10.0.0.5/redfish/v1/Systems/1/Bios"},
+  "Elsewhere": {"@odata.id": "https://192.0.2.1/redfish/v1/Systems/1/Other"}
+}`),
+	}
+
+	groups, self, err := redfish.ExtractLinks(resp)
+	if err != nil {
+		t.Fatalf("ExtractLinks: %v", err)
+	}
+
+	if self != "/redfish/v1/Systems/1" {
+		t.Errorf("self = %q, want the path form", self)
+	}
+
+	resource := group(t, groups, "Resource")
+
+	if got := find(t, resource, "Bios").Target; got != "/redfish/v1/Systems/1/Bios" {
+		t.Errorf("Bios target = %q, want the path form", got)
+	}
+
+	// Another host is left alone, so that following it is refused rather than
+	// quietly redirected to the connected machine.
+	want := "https://192.0.2.1/redfish/v1/Systems/1/Other"
+	if got := find(t, resource, "Elsewhere").Target; got != want {
+		t.Errorf("Elsewhere target = %q, want %q", got, want)
+	}
+}
+
+func TestExtractLinksDropsAURIRepeatingTheSelfLink(t *testing.T) {
+	t.Parallel()
+
+	groups, self := extract(t, `{
+  "@odata.id": "/redfish/v1/Systems/1",
+  "SelfUri": "/redfish/v1/Systems/1",
+  "Bios": {"@odata.id": "/redfish/v1/Systems/1/Bios"}
+}`)
+
+	for _, g := range groups {
+		for _, link := range g.Links {
+			if link.Target == self {
+				t.Errorf("self link %q must not appear in group %q", self, g.Title)
+			}
+		}
+	}
+}
+
+func TestExtractLinksSortsOEMGroupsByVendor(t *testing.T) {
+	t.Parallel()
+
+	groups, _ := extract(t, `{
+  "@odata.id": "/redfish/v1/Systems/1",
+  "Oem": {
+    "Contoso": {"Directory": {"@odata.id": "/redfish/v1/ResourceDirectory"}},
+    "Acme": {"Thermal": {"@odata.id": "/redfish/v1/Chassis/1/Thermal"}}
+  }
+}`)
+
+	want := []string{"Oem · Acme", "Oem · Contoso"}
+	if got := titles(groups); !equal(got, want) {
+		t.Errorf("groups = %v, want %v", got, want)
+	}
+}

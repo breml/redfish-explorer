@@ -30,6 +30,12 @@ const (
 	idleConnTimeout       = 90 * time.Second
 	tlsHandshakeTimeout   = 10 * time.Second
 	expectContinueTimeout = time.Second
+
+	// requestTimeout bounds a whole exchange, headers and body together. A BMC
+	// that completes the TLS handshake and then stops answering is a common
+	// enough failure that without a deadline the UI would wait for ever, with
+	// no key that could call it off.
+	requestTimeout = 30 * time.Second
 )
 
 // Config describes the service rfx talks to and how requests are rendered.
@@ -104,7 +110,9 @@ func Connect(ctx context.Context, cfg Config) (*Client, error) {
 		// which both races between concurrent connections and quietly disables
 		// certificate verification for everything else in the process.
 		// See: https://github.com/stmcginnis/gofish/issues/567
-		HTTPClient:        &http.Client{Transport: transport(cfg)},
+		// The deadline sits on the client rather than on each request context
+		// so that it also covers the ServiceRoot request gofish makes here.
+		HTTPClient:        &http.Client{Transport: transport(cfg), Timeout: requestTimeout},
 		NoModifyTransport: true,
 	})
 	if err != nil {

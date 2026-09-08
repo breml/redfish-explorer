@@ -28,6 +28,11 @@ const (
 	// defaultCacheTTL is how long a visited endpoint stays in the cache.
 	defaultCacheTTL = 5 * time.Minute
 
+	// connectTimeout bounds the whole connection attempt, which is several
+	// requests, so that an unresponsive host fails on a plain terminal rather
+	// than hanging before anything is drawn.
+	connectTimeout = time.Minute
+
 	// passwordEnvVar keeps the password out of argv and shell history.
 	passwordEnvVar = "RFX_PASSWORD"
 )
@@ -76,7 +81,10 @@ func run(args []string, stdout io.Writer, stderr io.Writer) error {
 	// Connecting before anything is drawn is deliberate: a bad host, an
 	// unverified certificate or wrong credentials must be reported on a plain
 	// terminal, not behind a full-screen UI.
-	client, err := redfish.Connect(context.Background(), clientCfg)
+	ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
+	defer cancel()
+
+	client, err := redfish.Connect(ctx, clientCfg)
 	if err != nil {
 		return err
 	}
