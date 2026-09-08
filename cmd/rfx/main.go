@@ -35,6 +35,8 @@ var errDone = errors.New("done")
 
 // config holds everything the command line and the environment contribute.
 type config struct {
+	// resource is the endpoint to inspect, from the first positional argument.
+	resource     string
 	host         string
 	username     string
 	password     string
@@ -80,13 +82,12 @@ func run(args []string, stdout io.Writer, stderr io.Writer) error {
 
 	// The terminal UI arrives with the following tasks; until then report what
 	// the service says about itself so the connection can be verified.
-	report(stderr, client)
-
-	return nil
+	return report(context.Background(), stderr, client, cfg.resource)
 }
 
-// report describes the connected service and the request rfx would make.
-func report(w io.Writer, client *redfish.Client) {
+// report describes the connected service, the request rfx would make, and the
+// links it finds at one resource.
+func report(ctx context.Context, w io.Writer, client *redfish.Client, resource string) error {
 	cfg := client.Config()
 	service := client.Service()
 
@@ -99,7 +100,53 @@ func report(w io.Writer, client *redfish.Client) {
 		fmt.Fprintf(w, "  OEM extensions:  %s\n", strings.Join(service.OEMVendors, ", "))
 	}
 
-	fmt.Fprintf(w, "\n%s\n", redfish.Curl(cfg, redfish.RootPath))
+	fmt.Fprintf(w, "\n%s\n\n", redfish.Curl(cfg, resource))
+
+	resp, err := client.Fetch(ctx, resource)
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(w, "%s %s (%s)\n", resp.Proto, resp.Status, resp.Duration.Round(time.Millisecond))
+
+	reportLinks(w, resp)
+
+	return nil
+}
+
+// reportLinks prints the links found in a response, grouped as the link pane
+// will show them.
+func reportLinks(w io.Writer, resp *redfish.Response) {
+	groups, self, err := redfish.ExtractLinks(resp)
+	if err != nil {
+		fmt.Fprintf(w, "\n%v\n", err)
+
+		return
+	}
+
+	fmt.Fprintf(w, "self: %s\n", self)
+
+	for _, oemType := range redfish.OEMTypes(resp.Body) {
+		fmt.Fprintf(w, "OEM type: %s\n", oemType)
+	}
+
+	for _, group := range groups {
+		fmt.Fprintf(w, "\n-- %s --\n", group.Title)
+
+		for _, link := range group.Links {
+			marker := ""
+			if link.Kind == redfish.KindAction {
+				marker = " [action]"
+			}
+
+			suffix := ""
+			if link.OEM {
+				suffix = " (oem)"
+			}
+
+			fmt.Fprintf(w, "  %-34s %s%s%s\n", link.Label, link.Target, marker, suffix)
+		}
+	}
 }
 
 // clientConfig turns the resolved command line into a client configuration.
@@ -167,6 +214,11 @@ func parseFlags(args []string, stdout io.Writer, stderr io.Writer) (config, erro
 		fmt.Fprintf(stdout, "rfx %s\n", version)
 
 		return config{}, errDone
+	}
+
+	cfg.resource = redfish.RootPath
+	if fs.NArg() > 0 {
+		cfg.resource = fs.Arg(0)
 	}
 
 	err = cfg.resolve()

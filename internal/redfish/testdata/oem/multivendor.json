@@ -1,0 +1,34 @@
+{
+  "@odata.type": "#Chassis.v1_26_0.Chassis",
+  "@odata.id": "/redfish/v1/Chassis/1",
+  "Id": "1",
+  "Thermal": {
+    "@odata.id": "/redfish/v1/Chassis/1/Thermal"
+  },
+  "@Redfish.Settings": {
+    "@odata.type": "#Settings.v1_3_5.Settings",
+    "SettingsObject": {
+      "@odata.id": "/redfish/v1/Chassis/1/Settings"
+    }
+  },
+  "Links": {
+    "Oem": {
+      "Ami": {
+        "DeepLink": {
+          "@odata.id": "/redfish/v1/Chassis/1/Oem/Ami/Deep"
+        }
+      }
+    }
+  },
+  "Oem": {
+    "Supermicro": {
+      "BoardSerial": "X11-0001"
+    },
+    "Ami": {
+      "@odata.type": "#AmiChassis.v1_0_0.AmiChassis",
+      "Fans": {
+        "@odata.id": "/redfish/v1/Chassis/1/Oem/Ami/Fans"
+      }
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "@odata.type": "#ComputerSystem.v1_17_0.ComputerSystem",
+  "@odata.id": "/redfish/v1/Systems/1",
+  "Id": "1",
+  "Name": "XCC Managed System",
+  "Links": {
+    "ManagedBy": [
+      {
+        "@odata.id": "/redfish/v1/Managers/1"
+      }
+    ]
+  },
+  "Oem": {
+    "Lenovo": {
+      "@odata.type": "#LenovoComputerSystem.v1_0_0.LenovoComputerSystem",
+      "SystemStatus": "OSBooted",
+      "Uri": "/redfish/v1/Systems/1/Oem/Lenovo/Overview",
+      "Processors": {
+        "@odata.id": "/redfish/v1/Systems/1/Processors"
+      },
+      "BootSettings": {
+        "href": "/redfish/v1/Systems/1/Oem/Lenovo/BootSettings"
+      }
+    }
+  }
+}
