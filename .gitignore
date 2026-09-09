@@ -32,3 +32,6 @@ CLAUDE.local.md
 
 # Scratch space: plans and experiments, not linted, tested or committed
 .scratch/
+
+# GoReleaser output
+dist/
