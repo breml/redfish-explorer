@@ -66,7 +66,7 @@ rfx -H 10.0.0.5 -u admin -k /redfish/v1/Systems/1
 | `--password`      | `-p`  | `$RFX_PASSWORD` | password                                                        |
 | `--insecure`      | `-k`  | `false`         | skip TLS certificate verification                               |
 | `--cache-ttl`     |       | `5m`            | how long to cache visited endpoints; `0` disables the cache     |
-| `--show-password` |       | `false`         | show the real password in the rendered curl command             |
+| `--show-password` |       | `false`         | show the real password in the on-screen curl command            |
 | `--version`       |       |                 | print the version and exit                                      |
 
 rfx fails before it takes over the terminal: an unreachable host, an unverified
@@ -79,8 +79,13 @@ A password passed as `--password` is visible in `ps` and in the shell history.
 Set `RFX_PASSWORD` instead to avoid that.
 
 The rendered `curl` command masks the password as `********`. Pass
-`--show-password` to render it verbatim — useful when the command is meant to be
-run, unwise when the screen is being shared.
+`--show-password` to render it verbatim — useful when the command is being read
+off the screen, unwise when the screen is being shared.
+
+The flag governs the screen only. `y` always copies the command with the real
+password in it, whether or not `--show-password` was given: masking is there to
+keep the password off a shared screen, and a clipboard is not a screen. A copied
+command is copied to be run.
 
 ## Keys
 
@@ -92,7 +97,7 @@ run, unwise when the screen is being shared.
 | `backspace` / `left`      | go back to the previous location                   |
 | `L`                       | edit the current endpoint, `enter` to load it      |
 | `r`                       | reload the current location, bypassing the cache   |
-| `y`                       | copy the `curl` command to the clipboard           |
+| `y`                       | copy the `curl` command, password and all          |
 | `page up` / `page down`   | scroll the response pane                           |
 | `?`                       | help panel; any key closes it                      |
 | `q` / `ctrl+c`            | quit                                               |

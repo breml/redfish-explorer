@@ -478,9 +478,10 @@ func (m Model) followAction(link redfish.Link) (tea.Model, tea.Cmd) {
 // the machine rfx itself runs on. What lands is the same either way, and the
 // footer reports which of the two could actually be confirmed.
 func (m Model) copyCurl() (tea.Model, tea.Cmd) {
-	// What is copied is exactly what the header shows, password masking
-	// included: --show-password governs both.
-	command := redfish.Curl(m.cfg, m.curlResource())
+	// The copy always carries the real password, whatever --show-password
+	// says: that flag keeps the password off a screen that may be shared,
+	// and a clipboard is not a screen. A copied command is copied to be run.
+	command := redfish.CurlWithPassword(m.cfg, m.curlResource())
 
 	return m, tea.Batch(tea.SetClipboard(command), copyCmd(command))
 }

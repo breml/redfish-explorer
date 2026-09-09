@@ -38,6 +38,9 @@ func (m Model) renderHeader(width int) string {
 // renderCurlLine draws the curl command for the current location. It sits
 // between the path and the breadcrumb, on one line, so that it can be selected
 // and copied in a single gesture.
+//
+// This is the on-screen form, so --show-password governs it. A copy made with
+// y carries the real password either way; see Model.copyCurl.
 func (m Model) renderCurlLine(width int) string {
 	command := redfish.Curl(m.cfg, m.curlResource())
 

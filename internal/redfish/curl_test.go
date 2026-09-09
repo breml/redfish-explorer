@@ -97,3 +97,40 @@ func TestCurlIsOneLineWithoutTheUserAgent(t *testing.T) {
 		t.Errorf("Curl() = %q, want no User-Agent header", got)
 	}
 }
+
+// A copy is made to be run, and masking exists to keep the password off a
+// screen that may be shared. The clipboard is not a screen, so --show-password
+// has no say over what CurlWithPassword renders.
+func TestCurlWithPasswordAlwaysCarriesTheRealPassword(t *testing.T) {
+	t.Parallel()
+
+	base := redfish.Config{
+		Endpoint:  "https://10.0.0.5",
+		Username:  "admin",
+		Password:  "it's s3cret",
+		UserAgent: "rfx/0.1.0",
+	}
+
+	revealed := base
+	revealed.ShowPassword = true
+
+	want := `curl -s -u 'admin:it'\''s s3cret' -H 'Accept: application/json' ` +
+		"'https://10.0.0.5/redfish/v1'"
+
+	for _, test := range []struct {
+		name string
+		cfg  redfish.Config
+	}{
+		{name: "with the password masked on screen", cfg: base},
+		{name: "with the password shown on screen", cfg: revealed},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := redfish.CurlWithPassword(test.cfg, "/redfish/v1")
+			if got != want {
+				t.Errorf("CurlWithPassword() =\n%s\n\nwant:\n%s", got, want)
+			}
+		})
+	}
+}

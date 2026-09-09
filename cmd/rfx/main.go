@@ -152,7 +152,7 @@ func parseFlags(args []string, stdout io.Writer, stderr io.Writer) (config, erro
 		defaultCacheTTL,
 		"how long to cache visited endpoints; 0 disables the cache",
 	)
-	fs.BoolVar(&cfg.showPassword, "show-password", false, "show the real password in the rendered curl command")
+	fs.BoolVar(&cfg.showPassword, "show-password", false, "show the real password in the on-screen curl command")
 	fs.BoolVar(&showVersion, "version", false, "print the version and exit")
 
 	err := fs.Parse(args)
@@ -222,7 +222,8 @@ Flags:
   -p, --password <password>  password; defaults to $RFX_PASSWORD
   -k, --insecure             skip TLS certificate verification
       --cache-ttl <d>        how long to cache visited endpoints (default 5m0s, 0 disables)
-      --show-password        show the real password in the rendered curl command
+      --show-password        show the real password in the on-screen curl command
+                             (a copy always carries it, with or without this)
       --version              print the version and exit
 
 The password is visible in ps and in the shell history when passed as a flag;

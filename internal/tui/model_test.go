@@ -313,11 +313,13 @@ func TestHeaderShowsTheCurlCommandOnOneLine(t *testing.T) {
 }
 
 // Copying is the point of the single-line curl command: what goes out has to be
-// exactly what the header shows.
+// the command that runs, which is the one the header shows carrying the real
+// password. Masking keeps the password off a screen that may be shared, and a
+// clipboard is not a screen, so --show-password has no say over a copy.
 func TestCopyPutsTheCurlCommandOnTheClipboard(t *testing.T) {
 	t.Parallel()
 
-	m := newModel(t, "/redfish/v1/Systems/1")
+	m, service := newModelWithServer(t, "/redfish/v1/Systems/1", cache.New(0))
 
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	if cmd == nil {
@@ -335,7 +337,11 @@ func TestCopyPutsTheCurlCommandOnTheClipboard(t *testing.T) {
 
 	// SetClipboard carries the text in an unexported message whose underlying
 	// type is a string, so the value is readable even if the type is not.
-	want := strings.TrimSpace(strings.Split(screen(m), "\n")[1])
+	want := redfish.CurlWithPassword(redfishtest.Config(service), "/redfish/v1/Systems/1")
+
+	if !strings.Contains(want, "-u '"+redfishtest.User+":"+redfishtest.Password+"'") {
+		t.Fatalf("the expected command %q does not carry the real password", want)
+	}
 
 	var found bool
 
@@ -347,14 +353,6 @@ func TestCopyPutsTheCurlCommandOnTheClipboard(t *testing.T) {
 
 	if !found {
 		t.Errorf("nothing in the batch copied %q", want)
-	}
-
-	if !strings.Contains(want, "/redfish/v1/Systems/1'") {
-		t.Errorf("curl line = %q, want the current resource", want)
-	}
-
-	if strings.Contains(want, "User-Agent") {
-		t.Errorf("curl line = %q, want no User-Agent header", want)
 	}
 }
 
