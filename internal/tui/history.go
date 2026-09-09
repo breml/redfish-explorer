@@ -4,9 +4,33 @@ package tui
 // resources, and only the recent ones are worth stepping back through.
 const maxHistory = 256
 
-// noCursor asks for the cursor to start at the top of the link pane, rather
-// than on a remembered row.
+// noCursor asks for a place to be worked out when the response lands, rather
+// than for a remembered row.
 const noCursor = -1
+
+// landing says where the cursor comes to rest once a fetch lands: on a
+// remembered row when there is one, else on the row pointing at target — the
+// resource being left behind when walking up — else on the first link.
+type landing struct {
+	cursor int
+	target string
+}
+
+// landFirst asks for the first link of whatever arrives.
+func landFirst() landing {
+	return landing{cursor: noCursor}
+}
+
+// landRow asks for a remembered row, as back and reload do.
+func landRow(cursor int) landing {
+	return landing{cursor: cursor}
+}
+
+// landChild asks for the row pointing at resource, so that walking up opens the
+// parent on the child it was reached from.
+func landChild(resource string) landing {
+	return landing{cursor: noCursor, target: resource}
+}
 
 // visit is a place the user has been, and where the cursor stood when they
 // left it.

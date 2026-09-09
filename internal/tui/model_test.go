@@ -228,9 +228,17 @@ func TestLinkPaneStartsWithParentEntry(t *testing.T) {
 	if !strings.Contains(screen(m), "..") {
 		t.Error("screen is missing the .. entry")
 	}
+}
 
-	if !strings.Contains(lineWith(t, m, ".."), "▸") {
-		t.Error(".. should carry the cursor on a fresh response")
+func TestCursorStartsOnTheFirstLink(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, "/redfish/v1/Systems/1")
+
+	// A fresh resource is one keypress from being explored, so the cursor
+	// starts on the first link rather than on the ".." above it.
+	if !strings.Contains(lineWith(t, m, "Bios"), "▸") {
+		t.Errorf("cursor should be on the first link, screen:\n%s", screen(m))
 	}
 }
 
@@ -415,14 +423,19 @@ func TestCursorMovesAndSkipsGroupHeaders(t *testing.T) {
 
 	m := newModel(t, "/redfish/v1/Systems/1")
 
-	// Down from ".." lands on the first link, not on the "Resource" heading.
+	// Two down from "Bios" clears "SecureBoot" and steps over the "Links"
+	// heading rather than landing on it.
+	m = press(t, m, "j")
 	m = press(t, m, "j")
 
-	if !strings.Contains(lineWith(t, m, "Bios"), "▸") {
-		t.Errorf("cursor should be on Bios, screen:\n%s", screen(m))
+	if !strings.Contains(lineWith(t, m, "Chassis[0]"), "▸") {
+		t.Errorf("cursor should be on Chassis[0], screen:\n%s", screen(m))
 	}
 
-	m = press(t, m, "k")
+	// Back up, the "Resource" heading is skipped the same way.
+	for range 3 {
+		m = press(t, m, "k")
+	}
 
 	if !strings.Contains(lineWith(t, m, ".."), "▸") {
 		t.Error("cursor should be back on ..")
@@ -434,7 +447,10 @@ func TestCursorStopsAtTheEnds(t *testing.T) {
 
 	m := newModel(t, "/redfish/v1/Systems/1")
 
+	// One up from the first link is "..", and there is nothing above it.
 	m = press(t, m, "k")
+	m = press(t, m, "k")
+
 	if !strings.Contains(lineWith(t, m, ".."), "▸") {
 		t.Error("cursor should stay on the first row")
 	}
@@ -452,7 +468,6 @@ func TestFooterShowsTheSelectedTarget(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(t, "/redfish/v1/Systems/1")
-	m = press(t, m, "j")
 
 	lines := strings.Split(screen(m), "\n")
 	footer := lines[len(lines)-1]
@@ -470,6 +485,9 @@ func TestParentEntryIsDimmedAtTheRoot(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(t, redfish.RootPath)
+
+	// The footer describes the selected row, so put the cursor on "..".
+	m = moveToParent(t, m)
 
 	lines := strings.Split(screen(m), "\n")
 	if !strings.Contains(lines[len(lines)-1], "already at the service root") {
@@ -545,6 +563,10 @@ func TestResourceWithoutLinks(t *testing.T) {
 
 	if !strings.Contains(screen(m), "..") {
 		t.Error("the .. entry must remain when a resource has no links")
+	}
+
+	if !strings.Contains(cursorLine(m), "..") {
+		t.Errorf("with no link to rest on the cursor stays on .., screen:\n%s", screen(m))
 	}
 
 	if !strings.Contains(screen(m), "Links (0)") {

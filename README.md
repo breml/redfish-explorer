@@ -102,12 +102,17 @@ the same as the path tree: a link can lead out of the current subtree, and going
 back returns to where it was followed. To move up the path instead, follow the
 `..` entry at the top of the link pane.
 
+A resource opens with its first link selected, so `enter` drills straight in.
+Walking up with `..` is the exception: the parent opens with the cursor on the
+resource just left.
+
 ## What it shows
 
 The left pane lists everything the current response links to, grouped by where
 in the document it was found: `Resource`, `Members`, `Links`, `Actions`,
 `Annotations`, one group per OEM vendor, and `Headers`. Within a group the links
-keep the order the service wrote them in.
+are sorted by label, ignoring case, so that a group reads as an alphabetical
+list rather than in the order the service happened to write the document.
 
 Beyond the obvious `@odata.id` values, rfx surfaces the things that are easy to
 miss by hand:

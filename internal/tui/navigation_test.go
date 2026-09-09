@@ -87,6 +87,24 @@ func moveTo(t *testing.T, m tui.Model, label string) tui.Model {
 	return m
 }
 
+// moveToParent walks the cursor up onto the ".." row, which a freshly loaded
+// resource opens below.
+func moveToParent(t *testing.T, m tui.Model) tui.Model {
+	t.Helper()
+
+	for range 60 {
+		if strings.Contains(cursorLine(m), parentEntry) {
+			return m
+		}
+
+		m = press(t, m, "k")
+	}
+
+	t.Fatalf("never reached %q, screen:\n%s", parentEntry, screen(m))
+
+	return m
+}
+
 func TestInitLoadsTheStartingResource(t *testing.T) {
 	t.Parallel()
 
@@ -217,10 +235,10 @@ func TestBackRestoresTheCursorPosition(t *testing.T) {
 	}
 }
 
-// A forward step is a new place, so it starts at the top of its link pane. The
-// service root has "Systems" where the Systems collection has its member, so a
-// row index carried across would land on the member rather than on "..".
-func TestFollowingALinkStartsAtTheTop(t *testing.T) {
+// A forward step is a new place, so it starts on the first link of the resource
+// it arrives at, and no row index is carried across: the service root has its
+// own links where the Systems collection has its member.
+func TestFollowingALinkStartsOnTheFirstLink(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(t, redfish.RootPath)
@@ -231,8 +249,11 @@ func TestFollowingALinkStartsAtTheTop(t *testing.T) {
 		t.Fatalf("path = %q, want the Systems collection", got)
 	}
 
-	if !strings.Contains(cursorLine(m), parentEntry) {
-		t.Errorf("cursor is on %q, want the .. entry of the new resource", cursorLine(m))
+	// The collection has one member, so the cursor is already on it.
+	m = pressCode(t, m, keyEnter)
+
+	if got := currentPath(t, m); got != "/redfish/v1/Systems/1" {
+		t.Errorf("path = %q, want enter to have followed the first link", got)
 	}
 }
 
@@ -365,7 +386,8 @@ func TestParentEntryWalksUp(t *testing.T) {
 
 	m := newModel(t, "/redfish/v1/Systems/1")
 
-	// The cursor starts on "..".
+	// The cursor starts on the first link, so step up onto "..".
+	m = moveToParent(t, m)
 	m = pressCode(t, m, keyEnter)
 
 	if got := currentPath(t, m); got != "/redfish/v1/Systems" {
@@ -475,6 +497,7 @@ func TestReloadBypassesTheCache(t *testing.T) {
 	}
 
 	// Navigating away and back is answered from the cache.
+	m = moveToParent(t, m)
 	m = pressCode(t, m, keyEnter)
 	m = moveTo(t, m, "1")
 	m = pressCode(t, m, keyEnter)
@@ -580,5 +603,47 @@ func TestTheActionNoticeClearsWhenTheCursorMoves(t *testing.T) {
 
 	if strings.Contains(screen(m), "not retrievable") {
 		t.Errorf("the notice must not outlive the row it describes, screen:\n%s", screen(m))
+	}
+}
+
+// Walking up keeps the user oriented: the parent opens on the row that leads
+// back to the resource just left, not on its first link.
+func TestWalkingUpSelectsTheResourceLeft(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, "/redfish/v1/Systems/1")
+	m = moveToParent(t, m)
+	m = pressCode(t, m, keyEnter)
+
+	if got := currentPath(t, m); got != "/redfish/v1/Systems" {
+		t.Fatalf("path = %q, want .. to walk up", got)
+	}
+
+	if !strings.Contains(cursorLine(m), "1") {
+		t.Errorf("cursor is on %q, want the member walked up from", cursorLine(m))
+	}
+
+	// Following what is under the cursor returns to where the walk up began.
+	m = pressCode(t, m, keyEnter)
+
+	if got := currentPath(t, m); got != "/redfish/v1/Systems/1" {
+		t.Errorf("path = %q, want the cursor to have been on the child", got)
+	}
+}
+
+func TestWalkingUpToTheRootSelectsTheChild(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, "/redfish/v1/Systems")
+	m = moveToParent(t, m)
+	m = pressCode(t, m, keyEnter)
+
+	if got := currentPath(t, m); got != redfish.RootPath {
+		t.Fatalf("path = %q, want the service root", got)
+	}
+
+	// "Chassis" sorts first at the root, so the first link is not the answer.
+	if !strings.Contains(cursorLine(m), "Systems") {
+		t.Errorf("cursor is on %q, want the Systems link walked up from", cursorLine(m))
 	}
 }

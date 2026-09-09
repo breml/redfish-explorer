@@ -91,14 +91,14 @@ func (m Model) withFetchError(resource string, err error) Model {
 	return m
 }
 
-// startFetch begins loading a resource, landing the cursor on the given row
-// once it arrives. The navKind and the cursor travel with the request rather
-// than being applied here, so that a fetch which never lands leaves both the
-// history and the user's place untouched.
-func (m Model) startFetch(resource string, policy cachePolicy, nav navKind, cursor int) (Model, tea.Cmd) {
+// startFetch begins loading a resource, leaving the cursor where the landing
+// asks once it arrives. The navKind and the landing travel with the request
+// rather than being applied here, so that a fetch which never lands leaves both
+// the history and the user's place untouched.
+func (m Model) startFetch(resource string, policy cachePolicy, nav navKind, where landing) (Model, tea.Cmd) {
 	m.pending = resource
 	m.pendingNav = nav
-	m.pendingCursor = cursor
+	m.pendingLanding = where
 	m.loading = true
 	m.notice = ""
 

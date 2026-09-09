@@ -88,10 +88,9 @@ type Model struct {
 	pending string
 	// pendingNav says what the pending fetch does to the history when it lands.
 	pendingNav navKind
-	// pendingCursor is the row the pending fetch should land on, or noCursor to
-	// start at the top of the link pane.
-	pendingCursor int
-	loading       bool
+	// pendingLanding is where the pending fetch should leave the cursor.
+	pendingLanding landing
+	loading        bool
 
 	// err is a failure to fetch: it replaces the response pane.
 	err error
@@ -122,14 +121,14 @@ func New(client *redfish.Client, store *cache.Cache, resource string) Model {
 		current: resource,
 		// Init fetches this straight away, so the guard in handleFetched has
 		// to know about it from the start.
-		pending:       resource,
-		pendingNav:    navStay,
-		pendingCursor: noCursor,
-		loading:       true,
-		body:          viewport.New(),
-		editor:        newEditor(),
-		spinner:       spinner.New(),
-		help:          help.New(),
+		pending:        resource,
+		pendingNav:     navStay,
+		pendingLanding: landFirst(),
+		loading:        true,
+		body:           viewport.New(),
+		editor:         newEditor(),
+		spinner:        spinner.New(),
+		help:           help.New(),
 	}
 
 	m.rows = buildRows(nil, true)
@@ -359,7 +358,7 @@ func (m Model) submitEditedLocation() (tea.Model, tea.Cmd) {
 
 	// A path that turns out not to exist is a normal outcome, not an error:
 	// probing for undocumented endpoints is what this is for.
-	return m.stopEditing().startFetch(resource, useCache, navForward, noCursor)
+	return m.stopEditing().startFetch(resource, useCache, navForward, landFirst())
 }
 
 // editedResource turns what was typed into a resource on the connected
@@ -426,7 +425,7 @@ func (m Model) handleNavigationKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.goBack()
 
 	case key.Matches(msg, m.keys.Reload):
-		return m.startFetch(m.current, skipCache, navStay, m.cursor)
+		return m.startFetch(m.current, skipCache, navStay, landRow(m.cursor))
 
 	case key.Matches(msg, m.keys.Copy):
 		return m.copyCurl()
@@ -454,7 +453,7 @@ func (m Model) follow() (tea.Model, tea.Cmd) {
 		return m.followAction(r.link)
 	}
 
-	return m.startFetch(r.link.Target, useCache, navForward, noCursor)
+	return m.startFetch(r.link.Target, useCache, navForward, landFirst())
 }
 
 // followAction opens an action's ActionInfo, which is the only part of an
@@ -462,7 +461,7 @@ func (m Model) follow() (tea.Model, tea.Cmd) {
 // that vendor actions can be discovered at all.
 func (m Model) followAction(link redfish.Link) (tea.Model, tea.Cmd) {
 	if link.ActionInfo != "" {
-		return m.startFetch(link.ActionInfo, useCache, navForward, noCursor)
+		return m.startFetch(link.ActionInfo, useCache, navForward, landFirst())
 	}
 
 	m.notice = "POST target — not retrievable; write support planned"
@@ -493,7 +492,7 @@ func (m Model) goUp() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	return m.startFetch(parent, useCache, navForward, noCursor)
+	return m.startFetch(parent, useCache, navForward, landChild(m.current))
 }
 
 // goBack returns to the place the last forward navigation left. With nothing
@@ -508,7 +507,7 @@ func (m Model) goBack() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	return m.startFetch(previous.resource, useCache, navBack, previous.cursor)
+	return m.startFetch(previous.resource, useCache, navBack, landRow(previous.cursor))
 }
 
 // moveUp moves the cursor or scrolls the response pane, by which pane has focus.
@@ -566,21 +565,48 @@ func (m Model) otherFocus() Focus {
 // rest on: a resource can have changed between two visits, and the row a stale
 // index points at would be the wrong one.
 func (m Model) restoreCursor() int {
-	if m.pendingCursor < 0 || m.pendingCursor >= len(m.rows) {
-		return m.firstSelectable()
+	remembered := m.pendingLanding.cursor
+	if remembered >= 0 && remembered < len(m.rows) && m.rows[remembered].selectable() {
+		return remembered
 	}
 
-	if !m.rows[m.pendingCursor].selectable() {
-		return m.firstSelectable()
+	if i, ok := m.rowForTarget(m.pendingLanding.target); ok {
+		return i
 	}
 
-	return m.pendingCursor
+	return m.firstLinkRow()
 }
 
-// firstSelectable returns the index of the first row the cursor may rest on.
-func (m Model) firstSelectable() int {
+// rowForTarget returns the row that leads to target. Trailing slashes are
+// ignored on both sides, since a service writes its own links and the path
+// walked up from was trimmed by redfish.Parent.
+func (m Model) rowForTarget(target string) (index int, ok bool) {
+	if target == "" {
+		return 0, false
+	}
+
+	target = strings.TrimRight(target, "/")
+
 	for i, r := range m.rows {
-		if r.selectable() {
+		if r.header || r.parent {
+			continue
+		}
+
+		if strings.TrimRight(r.link.Target, "/") == target {
+			return i, true
+		}
+	}
+
+	return 0, false
+}
+
+// firstLinkRow returns the row the cursor rests on when nothing better is
+// known: the first link, so that a resource is one keypress from being
+// explored. A resource with no links leaves the cursor on "..", which is then
+// the only row there is.
+func (m Model) firstLinkRow() int {
+	for i, r := range m.rows {
+		if r.selectable() && !r.parent {
 			return i
 		}
 	}
