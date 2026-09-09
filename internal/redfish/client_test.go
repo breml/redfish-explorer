@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/breml/redfish-explorer/internal/redfish"
 	"github.com/breml/redfish-explorer/internal/redfishtest"
@@ -82,10 +83,14 @@ func TestFetchSuccess(t *testing.T) {
 
 	client := connect(t, fixtureConfig(newFixtureServer(t)))
 
+	start := time.Now()
+
 	resp, err := client.Fetch(t.Context(), "/redfish/v1/Systems/1")
 	if err != nil {
 		t.Fatalf("Fetch: unexpected error: %v", err)
 	}
+
+	elapsed := time.Since(start)
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("StatusCode = %d, want %d", resp.StatusCode, http.StatusOK)
@@ -107,8 +112,12 @@ func TestFetchSuccess(t *testing.T) {
 		t.Errorf("Body does not contain the expected self link: %s", resp.Body)
 	}
 
-	if resp.Duration <= 0 {
-		t.Errorf("Duration = %v, want a positive duration", resp.Duration)
+	// Not "> 0": the Windows monotonic clock ticks at up to 15.6ms, so a
+	// loopback round trip can start and end within the same tick and measure
+	// exactly zero. Bounding it by the surrounding wall clock is what stays
+	// portable.
+	if resp.Duration < 0 || resp.Duration > elapsed {
+		t.Errorf("Duration = %v, want it within [0, %v]", resp.Duration, elapsed)
 	}
 }
 
