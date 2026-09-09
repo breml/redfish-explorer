@@ -107,6 +107,9 @@ type Model struct {
 	editErr string
 	// showHelp covers the screen with every binding.
 	showHelp bool
+	// showHeaders expands the response headers, which the pane folds down to
+	// the status line by default.
+	showHeaders bool
 }
 
 // New returns a model that will load resource from a connected service.
@@ -433,9 +436,24 @@ func (m Model) handleNavigationKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Location):
 		return m.startEditing()
 
+	case key.Matches(msg, m.keys.Headers):
+		return m.toggleHeaders(), nil
+
 	default:
 		return m, nil
 	}
+}
+
+// toggleHeaders folds the response headers away or back. The pane returns to
+// the top, because the lines above the body have just changed in number and
+// whatever was being read would otherwise jump.
+func (m Model) toggleHeaders() Model {
+	m.showHeaders = !m.showHeaders
+
+	m.body.SetContent(m.renderBody())
+	m.body.GotoTop()
+
+	return m
 }
 
 // follow acts on the highlighted row.

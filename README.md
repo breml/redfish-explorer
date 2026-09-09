@@ -19,16 +19,16 @@ straight into a bug report or a script.
  root > Systems > 1
 ┌ Links (14) ──────────────┬ Response ──────────────────────────────────────────────────────────┐
 │  ..                      │ HTTP/1.1 200 OK                                                    │
-│ ── Resource ──           │ Content-Type: application/json;charset=utf-8                       │
-│  Bios                    │ OData-Version: 4.0                                                 │
-│  Storage                 │                                                                    │
-│ ── Links ──              │ {                                                                  │
-│  Chassis[0]              │   "@odata.id": "/redfish/v1/Systems/1",                            │
-│ ── Actions ──            │   "Id": "1",                                                       │
-│  #ComputerSystem.Reset ⚡ │   "Name": "Contoso Server",                                        │
-│ ── Oem · Hpe ──   (oem)  │   "PowerState": "On",                                              │
-│▸ Thermal           (oem) │   "Bios": {                                                        │
-│  SmartStorage      (oem) │     "@odata.id": "/redfish/v1/Systems/1/Bios"                      │
+│ ── Resource ──           │ 6 headers hidden · H to show                                       │
+│  Bios                    │                                                                    │
+│  Storage                 │ {                                                                  │
+│ ── Links ──              │   "@odata.id": "/redfish/v1/Systems/1",                            │
+│  Chassis[0]              │   "Id": "1",                                                       │
+│ ── Actions ──            │   "Name": "Contoso Server",                                        │
+│  #ComputerSystem.Reset ⚡ │   "PowerState": "On",                                              │
+│ ── Oem · Hpe ──   (oem)  │   "Bios": {                                                        │
+│▸ Thermal           (oem) │     "@odata.id": "/redfish/v1/Systems/1/Bios"                      │
+│  SmartStorage      (oem) │   },                                                               │
 └──────────────────────────┴────────────────────────────────────────────────────────────────────┘
  /redfish/v1/Systems/1/Oem/Hpe/Thermal        tab panes · L location · r reload · ? help · q quit
 ```
@@ -96,6 +96,7 @@ command is copied to be run.
 | `enter`                   | follow the selected link                           |
 | `backspace` / `left`      | go back to the previous location                   |
 | `L`                       | edit the current endpoint, `enter` to load it      |
+| `H`                       | expand or fold the response headers                |
 | `r`                       | reload the current location, bypassing the cache   |
 | `y`                       | copy the `curl` command, password and all          |
 | `page up` / `page down`   | scroll the response pane                           |
@@ -160,9 +161,14 @@ terminal may have dropped the blind route too. Running rfx over SSH says
 `sent as OSC 52` as well: the local clipboard there belongs to the far end, so
 nothing about it can be claimed for the machine the user is sitting at.
 
-The right pane shows the response status and headers, and the pretty-printed
-body. Keys stay in the order the service sent them, because Redfish services
-order them meaningfully.
+The right pane shows the response status line and the pretty-printed body. Keys
+stay in the order the service sent them, because Redfish services order them
+meaningfully.
+
+The response headers are folded away, since the body is what a resource is read
+for; the line in their place says how many there are, and `H` expands them. An
+`ETag`, a `Location` or an `Allow` is a keystroke away rather than a permanent
+five lines above every body.
 
 `L` opens the location bar for typing or pasting a path. A full URL copied from
 a browser is accepted and reduced to its path; one naming a different host is

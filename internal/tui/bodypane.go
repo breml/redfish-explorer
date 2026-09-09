@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 )
 
-// renderBody composes the response pane: the status and headers of the
-// response, then its body. The curl command that produced it lives in the
-// header, where it is one line and easy to copy.
+// renderBody composes the response pane: the status line of the response, its
+// headers where they are expanded, then its body. The curl command that
+// produced it lives in the header, where it is one line and easy to copy.
 func (m Model) renderBody() string {
 	var b strings.Builder
 
@@ -27,11 +28,50 @@ func (m Model) renderBody() string {
 
 	b.WriteString(m.theme.Status.Render(m.resp.Proto + " " + m.resp.Status))
 	b.WriteString("\n")
-	b.WriteString(m.theme.Header.Render(renderHeaders(m.resp.Header)))
+	b.WriteString(m.renderResponseHeaders())
 	b.WriteString("\n")
 	b.WriteString(m.renderResponseBody())
 
 	return b.String()
+}
+
+// renderResponseHeaders draws the headers when they are expanded, and says how
+// many are folded away when they are not. The body is what a Redfish response
+// is read for, so the pane opens on it; the headers matter often enough — an
+// ETag, a Location, an Allow — that the way back to them has to be visible.
+func (m Model) renderResponseHeaders() string {
+	if m.showHeaders {
+		return m.theme.Header.Render(renderHeaders(m.resp.Header))
+	}
+
+	count := countHeaders(m.resp.Header)
+	if count == 0 {
+		return ""
+	}
+
+	return m.theme.Dim.Render(pluralHeaders(count)+" hidden · ") +
+		m.theme.Hint.Render(m.keys.Headers.Help().Key) +
+		m.theme.Dim.Render(" to show") + "\n"
+}
+
+// pluralHeaders names a header count for the folded line.
+func pluralHeaders(count int) string {
+	if count == 1 {
+		return "1 header"
+	}
+
+	return strconv.Itoa(count) + " headers"
+}
+
+// countHeaders counts header lines, which is not the number of names: a header
+// sent more than once renders one line per value.
+func countHeaders(header http.Header) int {
+	count := 0
+	for _, values := range header {
+		count += len(values)
+	}
+
+	return count
 }
 
 // renderHeaders lists the response headers, one per line, in a stable order.

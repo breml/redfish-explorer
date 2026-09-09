@@ -267,16 +267,24 @@ func TestLinkPaneCountsLinks(t *testing.T) {
 	}
 }
 
-func TestBodyPaneShowsHeadersAndBody(t *testing.T) {
+// The pane opens on the status line and the body: the headers are folded away,
+// with the count and the key that expands them left in their place.
+func TestBodyPaneShowsTheStatusLineAndBody(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(t, "/redfish/v1/Systems/1")
 	out := screen(m)
 
-	for _, want := range []string{"HTTP/1.1 200 OK", "Odata-Version: 4.0"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("response pane is missing %q", want)
-		}
+	if !strings.Contains(out, "HTTP/1.1 200 OK") {
+		t.Error("response pane is missing the status line")
+	}
+
+	if strings.Contains(out, "Odata-Version: 4.0") {
+		t.Error("response pane shows a header, want them folded away by default")
+	}
+
+	if !strings.Contains(out, "headers hidden · H to show") {
+		t.Errorf("want the folded-header line, response pane:\n%s", out)
 	}
 
 	if !strings.Contains(out, `"@odata.id": "/redfish/v1/Systems/1"`) {
@@ -286,6 +294,48 @@ func TestBodyPaneShowsHeadersAndBody(t *testing.T) {
 	// The curl command moved to the header, so the pane opens on the status.
 	if strings.Contains(lineWith(t, m, "Response ─"), "curl") {
 		t.Error("the curl command should not be in the response pane")
+	}
+}
+
+// H expands the headers and folds them back, whichever pane has focus: the
+// response is the only thing they belong to.
+func TestHeadersKeyTogglesTheResponseHeaders(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, "/redfish/v1/Systems/1")
+	folded := screen(m)
+
+	m = press(t, m, "H")
+
+	out := screen(m)
+	for _, want := range []string{"HTTP/1.1 200 OK", "Odata-Version: 4.0", "Content-Type: application/json"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expanded response pane is missing %q", want)
+		}
+	}
+
+	if strings.Contains(out, "headers hidden") {
+		t.Error("want the folded-header line replaced by the headers themselves")
+	}
+
+	if !strings.Contains(out, `"@odata.id": "/redfish/v1/Systems/1"`) {
+		t.Error("expanding the headers dropped the body")
+	}
+
+	if screen(press(t, m, "H")) != folded {
+		t.Error("H should fold the headers away again")
+	}
+}
+
+// A lower-case h is not the toggle: it is free for a future vi-style binding,
+// and folding the headers on a stray keystroke would be a surprise.
+func TestLowercaseHDoesNotToggleTheHeaders(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(t, "/redfish/v1/Systems/1")
+
+	if screen(press(t, m, "h")) != screen(m) {
+		t.Error("h should not expand the response headers")
 	}
 }
 
