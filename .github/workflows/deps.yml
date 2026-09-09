@@ -1,0 +1,24 @@
+---
+
+# https://github.com/actions/go-dependency-submission
+name: Dependency Submission
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "stable"
+      - uses: actions/go-dependency-submission@v2
+        with:
+          go-mod-path: go.mod
+          go-build-target: ./cmd/rfx
