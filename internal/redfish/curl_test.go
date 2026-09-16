@@ -27,6 +27,11 @@ func TestCurl(t *testing.T) {
 	quoted.Password = "it's"
 	quoted.ShowPassword = true
 
+	anonymous := redfish.Config{
+		Endpoint:  "https://10.0.0.5",
+		UserAgent: "rfx/0.1.0",
+	}
+
 	tests := []struct {
 		name     string
 		cfg      redfish.Config
@@ -53,6 +58,12 @@ func TestCurl(t *testing.T) {
 			resource: "/redfish/v1",
 			want: "curl -s -u 'admin:s3cret' -H 'Accept: application/json' " +
 				"'https://10.0.0.5/redfish/v1'",
+		},
+		{
+			name:     "no credentials renders no -u",
+			cfg:      anonymous,
+			resource: "/redfish/v1",
+			want:     "curl -s -H 'Accept: application/json' 'https://10.0.0.5/redfish/v1'",
 		},
 		{
 			name:     "single quote in password is escaped",

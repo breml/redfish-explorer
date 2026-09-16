@@ -140,7 +140,7 @@ func parseFlags(args []string, stdout io.Writer, stderr io.Writer) (config, erro
 	// resolve to the same variable.
 	fs.StringVar(&cfg.host, "host", "", "Redfish host, e.g. 10.0.0.5, 10.0.0.5:8443 or https://10.0.0.5")
 	fs.StringVar(&cfg.host, "H", "", "shorthand for -host")
-	fs.StringVar(&cfg.username, "username", "", "user name to authenticate with")
+	fs.StringVar(&cfg.username, "username", "", "user name to authenticate with; omit for anonymous access")
 	fs.StringVar(&cfg.username, "u", "", "shorthand for -username")
 	fs.StringVar(&cfg.password, "password", "", "password; defaults to $"+passwordEnvVar)
 	fs.StringVar(&cfg.password, "p", "", "shorthand for -password")
@@ -186,19 +186,23 @@ func parseFlags(args []string, stdout io.Writer, stderr io.Writer) (config, erro
 }
 
 // resolve fills in what the flags left open and rejects an incomplete config.
+// Credentials are optional: with neither a user name nor a password rfx
+// explores the service anonymously.
 func (c *config) resolve() error {
 	if c.host == "" {
 		return errors.New("no host given, use -host")
 	}
 
-	if c.username == "" {
-		return errors.New("no user name given, use -username")
-	}
-
-	// An empty password is never assumed: an anonymous request that happens to
-	// succeed is more confusing than a clear error.
 	if c.password == "" {
 		c.password = os.Getenv(passwordEnvVar)
+	}
+
+	if c.username == "" {
+		if c.password != "" {
+			return fmt.Errorf("a password was given without a user name, use -username or unset $%s", passwordEnvVar)
+		}
+
+		return nil
 	}
 
 	if c.password == "" {
@@ -214,17 +218,20 @@ func usage(w io.Writer) {
 	fmt.Fprint(w, `rfx explores the Redfish API of a BMC.
 
 Usage:
-  rfx --host <host> --username <user> [--password <password>] [flags]
+  rfx --host <host> [--username <user> [--password <password>]] [flags]
 
 Flags:
   -H, --host <host>          Redfish host, e.g. 10.0.0.5, 10.0.0.5:8443 or https://10.0.0.5
-  -u, --username <user>      user name to authenticate with
+  -u, --username <user>      user name to authenticate with; omit for anonymous access
   -p, --password <password>  password; defaults to $RFX_PASSWORD
   -k, --insecure             skip TLS certificate verification
       --cache-ttl <d>        how long to cache visited endpoints (default 5m0s, 0 disables)
       --show-password        show the real password in the on-screen curl command
                              (a copy always carries it, with or without this)
       --version              print the version and exit
+
+Credentials are optional: without --username rfx explores the service
+anonymously, which works on the services that do not require authentication.
 
 The password is visible in ps and in the shell history when passed as a flag;
 set $RFX_PASSWORD instead to avoid that.

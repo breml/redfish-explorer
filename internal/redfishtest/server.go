@@ -33,15 +33,29 @@ var fixtures embed.FS
 // fixtureRoot is where the embedded files sit.
 const fixtureRoot = "testdata"
 
+// gate reports whether a request may be answered as it stands.
+type gate func(r *http.Request) bool
+
 // NewServer starts a TLS server answering from the embedded fixtures. The
 // caller closes it. The service root is readable without credentials, as the
 // Redfish specification requires; everything below it is protected.
 func NewServer() *httptest.Server {
+	return httptest.NewTLSServer(handler(protected))
+}
+
+// NewOpenServer starts a TLS server answering the same fixtures to anyone, as
+// the Redfish services that require no authentication do. The caller closes it.
+func NewOpenServer() *httptest.Server {
+	return httptest.NewTLSServer(handler(open))
+}
+
+// handler serves the fixtures behind the given gate.
+func handler(allowed gate) http.Handler {
 	notFound := mustRead("notfound.json")
 	serverError := mustRead("servererror.html")
 
-	return httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !isPublic(r.URL.Path) && !authorized(r) {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !allowed(r) {
 			w.Header().Set("WWW-Authenticate", `Basic realm="redfish"`)
 			write(w, http.StatusUnauthorized, "application/json", notFound)
 
@@ -63,15 +77,34 @@ func NewServer() *httptest.Server {
 
 		w.Header().Set("OData-Version", "4.0")
 		write(w, http.StatusOK, "application/json;charset=utf-8", body)
-	}))
+	})
+}
+
+// protected admits the public resources and any request carrying the fixture
+// credentials.
+func protected(r *http.Request) bool {
+	return isPublic(r.URL.Path) || authorized(r)
+}
+
+// open admits everything.
+func open(_ *http.Request) bool {
+	return true
 }
 
 // Config returns a client configuration pointing at a fixture server.
 func Config(server *httptest.Server) redfish.Config {
+	cfg := AnonymousConfig(server)
+	cfg.Username = User
+	cfg.Password = Password
+
+	return cfg
+}
+
+// AnonymousConfig returns a client configuration carrying no credentials, for
+// exercising a service that asks for none.
+func AnonymousConfig(server *httptest.Server) redfish.Config {
 	return redfish.Config{
 		Endpoint:  server.URL,
-		Username:  User,
-		Password:  Password,
 		Insecure:  true,
 		UserAgent: "rfx/test",
 	}

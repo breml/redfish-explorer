@@ -9,8 +9,9 @@ const maskedPassword = "********"
 
 // Curl renders the curl command equivalent to the request rfx makes for
 // resource, with the password masked unless Config.ShowPassword says otherwise.
-// It is one line so that it can be selected and copied in a single gesture,
-// which is what it is for: pasting into a bug report or a script.
+// An anonymous configuration renders no -u, so the command stays equivalent to
+// the request. It is one line so that it can be selected and copied in a single
+// gesture, which is what it is for: pasting into a bug report or a script.
 //
 // The User-Agent rfx sets on the real request (see Client.Fetch) is left out.
 // curl sends its own, the header plays no part in what a service answers, and
@@ -38,8 +39,11 @@ func renderCurl(cfg Config, resource string, password string) string {
 		b.WriteString(" -k")
 	}
 
-	b.WriteString(" -u ")
-	b.WriteString(shellQuote(cfg.Username + ":" + password))
+	if cfg.Authenticated() {
+		b.WriteString(" -u ")
+		b.WriteString(shellQuote(cfg.Username + ":" + password))
+	}
+
 	b.WriteString(" -H ")
 	b.WriteString(shellQuote("Accept: " + contentTypeJSON))
 	b.WriteString(" ")

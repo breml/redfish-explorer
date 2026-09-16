@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -75,6 +76,70 @@ func TestConnectRejectsWrongCredentials(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "--password") {
 		t.Errorf("Connect error = %q, want it to mention --password", err)
+	}
+}
+
+// Not every Redfish service requires authentication, so a config without
+// credentials has to connect and explore like any other.
+func TestConnectWithoutCredentials(t *testing.T) {
+	t.Parallel()
+
+	client := connect(t, redfishtest.AnonymousConfig(newOpenFixtureServer(t)))
+
+	resp, err := client.Fetch(t.Context(), "/redfish/v1/Systems")
+	if err != nil {
+		t.Fatalf("Fetch: unexpected error: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("StatusCode = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+}
+
+// Connecting anonymously to a service that does protect its resources has to
+// say so on a plain terminal, not leave every navigation answering 401.
+func TestConnectWithoutCredentialsRejectsAProtectedService(t *testing.T) {
+	t.Parallel()
+
+	_, err := redfish.Connect(t.Context(), redfishtest.AnonymousConfig(newFixtureServer(t)))
+	if err == nil {
+		t.Fatal("Connect: want an error for a service that requires authentication")
+	}
+
+	if !strings.Contains(err.Error(), "--username") {
+		t.Errorf("Connect error = %q, want it to mention --username", err)
+	}
+}
+
+// An anonymous request must carry no Authorization header at all: a service
+// that requires none can still reject an empty basic-auth pair.
+func TestFetchWithoutCredentialsSendsNoAuthorization(t *testing.T) {
+	t.Parallel()
+
+	var authorization string
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+
+		body, err := redfishtest.Fixture("tree" + redfish.RootPath + "/index.json")
+		if err != nil {
+			t.Errorf("Fixture: unexpected error: %v", err)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(server.Close)
+
+	client := connect(t, redfishtest.AnonymousConfig(server))
+
+	_, err := client.Fetch(t.Context(), redfish.RootPath)
+	if err != nil {
+		t.Fatalf("Fetch: unexpected error: %v", err)
+	}
+
+	if authorization != "" {
+		t.Errorf("Authorization = %q, want no header", authorization)
 	}
 }
 

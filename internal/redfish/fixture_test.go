@@ -28,6 +28,16 @@ func fixtureConfig(server *httptest.Server) redfish.Config {
 	return redfishtest.Config(server)
 }
 
+// newOpenFixtureServer starts a fixture service that requires no credentials.
+func newOpenFixtureServer(t *testing.T) *httptest.Server {
+	t.Helper()
+
+	server := redfishtest.NewOpenServer()
+	t.Cleanup(server.Close)
+
+	return server
+}
+
 // TestFixtureServer runs the fixture service until interrupted, so that the TUI
 // can be driven against it by hand:
 //
