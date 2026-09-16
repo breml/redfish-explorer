@@ -43,6 +43,7 @@ type Config struct {
 	// Endpoint is the scheme and authority of the service, already normalized.
 	Endpoint string
 	// Username and Password authenticate every request via HTTP basic auth.
+	// Both empty means anonymous access, which some services allow.
 	Username string
 	Password string
 	// Insecure skips TLS certificate verification.
@@ -51,6 +52,12 @@ type Config struct {
 	ShowPassword bool
 	// UserAgent identifies rfx to the service.
 	UserAgent string
+}
+
+// Authenticated reports whether requests carry credentials. A service that
+// needs none is explored anonymously.
+func (c Config) Authenticated() bool {
+	return c.Username != ""
 }
 
 // ServiceInfo holds the ServiceRoot metadata shown in the header.
@@ -126,7 +133,7 @@ func Connect(ctx context.Context, cfg Config) (*Client, error) {
 		service: serviceInfo(api.Service),
 	}
 
-	err = client.verifyCredentials(ctx)
+	err = client.verifyAccess(ctx)
 	if err != nil {
 		client.Close()
 
@@ -167,7 +174,10 @@ func (c *Client) Fetch(ctx context.Context, resource string) (*Response, error) 
 
 	req.Header.Set("Accept", contentTypeJSON)
 	req.Header.Set("User-Agent", c.cfg.UserAgent)
-	req.SetBasicAuth(c.cfg.Username, c.cfg.Password)
+
+	if c.cfg.Authenticated() {
+		req.SetBasicAuth(c.cfg.Username, c.cfg.Password)
+	}
 
 	start := time.Now()
 
@@ -261,14 +271,15 @@ func (c *Client) Resolve(resource string) (string, error) {
 	return c.cfg.Endpoint + parsed.RequestURI(), nil
 }
 
-// verifyCredentials probes one protected resource so that bad credentials are
-// reported before the terminal UI starts.
+// verifyAccess probes one protected resource so that bad credentials, or a
+// service that will not answer anonymously, are reported before the terminal UI
+// starts.
 //
 // gofish reads the service root before it configures authentication, and the
 // Redfish specification makes the service root readable without credentials, so
 // a successful Connect proves nothing about the user name and password. With
 // basic auth gofish never validates them either: it only stores them.
-func (c *Client) verifyCredentials(ctx context.Context) error {
+func (c *Client) verifyAccess(ctx context.Context) error {
 	root, err := c.Fetch(ctx, RootPath)
 	if err != nil {
 		return fmt.Errorf("reading %s from %s: %w", RootPath, c.cfg.Endpoint, err)
@@ -289,6 +300,11 @@ func (c *Client) verifyCredentials(ctx context.Context) error {
 	// A 403 means the credentials were accepted but the account lacks the
 	// privilege, which is a normal thing to discover while exploring.
 	if resp.StatusCode == http.StatusUnauthorized {
+		if !c.cfg.Authenticated() {
+			return fmt.Errorf("%s: %s requires authentication, pass --username and --password",
+				c.cfg.Endpoint, target)
+		}
+
 		return fmt.Errorf("%s: authentication failed for user %q, check --username and --password",
 			c.cfg.Endpoint, c.cfg.Username)
 	}

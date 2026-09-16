@@ -59,10 +59,17 @@ report can be opened directly:
 rfx -H 10.0.0.5 -u admin -k /redfish/v1/Systems/1
 ```
 
+Credentials are optional. A service that requires no authentication is explored
+without them:
+
+```sh
+rfx --host 10.0.0.5 --insecure
+```
+
 | Flag              | Short | Default         | Description                                                     |
 |-------------------|-------|-----------------|-----------------------------------------------------------------|
 | `--host`          | `-H`  | —               | Redfish host: `10.0.0.5`, `10.0.0.5:8443` or `https://10.0.0.5` |
-| `--username`      | `-u`  | —               | user name to authenticate with                                  |
+| `--username`      | `-u`  | —               | user name; omit for anonymous access                            |
 | `--password`      | `-p`  | `$RFX_PASSWORD` | password                                                        |
 | `--insecure`      | `-k`  | `false`         | skip TLS certificate verification                               |
 | `--cache-ttl`     |       | `5m`            | how long to cache visited endpoints; `0` disables the cache     |
@@ -70,7 +77,11 @@ rfx -H 10.0.0.5 -u admin -k /redfish/v1/Systems/1
 | `--version`       |       |                 | print the version and exit                                      |
 
 rfx fails before it takes over the terminal: an unreachable host, an unverified
-certificate or wrong credentials are reported on a plain terminal and exit 1.
+certificate, wrong credentials, or a service that will not answer anonymously
+are reported on a plain terminal and exit 1.
+
+`--username` and `--password` belong together: a password without a user name is
+an error rather than a silently anonymous request.
 
 BMCs almost always present a self-signed certificate, so `--insecure` is usually
 required. It is an explicit opt-in rather than a default.
